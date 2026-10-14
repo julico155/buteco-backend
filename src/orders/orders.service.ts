@@ -5,7 +5,6 @@ import { AppConfig } from '../config/configuration';
 import { KYSELY } from '../database/database.module';
 import {
   Database,
-  DashboardUserRole,
   OrderChannel,
   OrderDeliveryType,
   OrderPaymentMethod,
@@ -47,8 +46,7 @@ import { DeliveryNoticesService } from '../delivery-notices/delivery-notices.ser
 import type { WhatsappMessagePayload } from '../gateway-client/gateway-client.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { normalizePhone } from '../customers/normalize-phone';
-import { assertRoleCanMoveStatus } from '../delivery-drivers/delivery-drivers.rules';
-import { requiresPaymentBeforePreparing } from './payment-gate';
+import { requiresPaymentBeforeHandover } from './payment-gate';
 import { decideLocationAttach, LocationAttachDecision } from './location-attach';
 import { buildQrConfirmationContext, qrAmountFor } from './qr-confirmation-context';
 
@@ -154,16 +152,29 @@ export interface CheckoutCartInput {
   registerSessionId?: string | null;
 }
 
+/**
+ * No hay pantalla de cocina: la comanda sale impresa y el cajero recibe el
+ * pedido listo por la ventanilla. Por eso un pedido confirmado se cierra en un
+ * solo paso: recojo y mesa -> `delivered` (entregado), delivery ->
+ * `out_for_delivery` (despachado; no hay confirmación de entrega).
+ * `preparing` y `ready` ya no se alcanzan: solo quedan como origen para
+ * pedidos que ya estaban en esos estados antes del cambio.
+ */
 const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   draft: ['awaiting_location', 'confirmed', 'cancelled'],
   awaiting_location: ['confirmed', 'cancelled'],
-  confirmed: ['preparing', 'cancelled'],
-  preparing: ['ready', 'cancelled'],
+  confirmed: ['out_for_delivery', 'delivered', 'cancelled'],
+  preparing: ['out_for_delivery', 'delivered', 'cancelled'],
   ready: ['out_for_delivery', 'delivered', 'cancelled'],
   out_for_delivery: ['delivered', 'cancelled'],
   delivered: [],
   cancelled: [],
 };
+
+/** Delivery se despacha; recojo y mesa se entregan. */
+function handoverStatusFor(deliveryType: OrderDeliveryType): OrderStatus {
+  return deliveryType === 'delivery' ? 'out_for_delivery' : 'delivered';
+}
 
 /**
  * Corazón del sistema. Porta `create_order_web_v5` (el sistema anterior,
@@ -1520,44 +1531,49 @@ export class OrdersService {
 
   /**
    * PATCH /orders/:id/status — transición legal + CAS optimista. `updatedBy`
-   * es el username del staff autenticado (tablero de cocina, JWT) — queda
-   * guardado en `status_updated_by` para saber quién movió el pedido.
+   * es el username del staff autenticado (JWT) — queda guardado en
+   * `status_updated_by` para saber quién cerró el pedido.
    *
-   * Pago contra entrega SOLO existe para `payment_method='cash'` (el
-   * repartidor cobra todo —comida + envío— al entregar, o el mostrador al
-   * retirar; ver `DeliveryDriversService.deliver`/`OrdersService.confirmCash`)
-   * — ahí `preparing` no exige `paid` todavía, cocina arranca a cuenta de que
-   * se cobre al final. Todo lo demás (QR, split) sí exige
-   * `payment_status: 'paid'` antes de `-> preparing`, porque en esos casos
-   * el pago siempre se confirma ANTES de que cocina empiece.
+   * El único cierre manual es entregar (recojo/mesa) o despachar (delivery):
+   * ver `ORDER_STATUS_TRANSITIONS`. Ahí se exige el pago: QR y split siempre
+   * tienen que estar `paid`; el efectivo no (se cobra al entregar), salvo
+   * `cash_prepayment_required` en recojo/mesa.
    */
-  async updateStatus(
-    orderId: string,
-    to: OrderStatus,
-    updatedBy: string | null,
-    actorRole: DashboardUserRole,
-  ): Promise<OrderResponse> {
+  async updateStatus(orderId: string, to: OrderStatus, updatedBy: string | null): Promise<OrderResponse> {
     const order = await this.db
       .selectFrom('orders')
       .selectAll()
       .where('id', '=', orderId)
       .executeTakeFirst();
     if (!order) throw new NotFoundDomainError('order', orderId);
-    assertRoleCanMoveStatus(actorRole, order.delivery_type, to);
 
     const allowed = ORDER_STATUS_TRANSITIONS[order.status] ?? [];
     if (!allowed.includes(to)) {
       throw new InvalidStateTransitionError('order', order.status, to);
     }
 
-    if (to === 'preparing' && order.payment_status !== 'paid') {
+    const expectedHandover = handoverStatusFor(order.delivery_type);
+    // Un delivery ya despachado todavía puede pasar a `delivered` (pedidos viejos).
+    const isLegacyDelivered = order.status === 'out_for_delivery' && to === 'delivered';
+    if ((to === 'out_for_delivery' || to === 'delivered') && to !== expectedHandover && !isLegacyDelivered) {
+      throw new DomainException(
+        'invalid_handover_status',
+        HttpStatus.CONFLICT,
+        order.delivery_type === 'delivery'
+          ? 'Un pedido de delivery se marca como despachado.'
+          : 'Un pedido de recojo o mesa se marca como entregado.',
+        { deliveryType: order.delivery_type, to },
+      );
+    }
+
+    if ((to === 'out_for_delivery' || to === 'delivered') && order.payment_status !== 'paid') {
       // Solo el efectivo presencial depende de la configuración: no se consulta de más.
       const cashPrepaymentRequired =
         order.payment_method === 'cash' && order.delivery_type !== 'delivery'
           ? (await this.operationalSettings.getRow()).cash_prepayment_required
           : false;
       if (
-        requiresPaymentBeforePreparing({
+        requiresPaymentBeforeHandover({
           paymentMethod: order.payment_method,
           deliveryType: order.delivery_type,
           cashPrepaymentRequired,
@@ -1566,7 +1582,7 @@ export class OrdersService {
         throw new DomainException(
           'payment_required',
           HttpStatus.CONFLICT,
-          'El pedido debe estar pagado antes de empezar a prepararse.',
+          'El pedido debe estar pagado antes de entregarse o despacharse.',
           { paymentStatus: order.payment_status },
         );
       }
@@ -1653,12 +1669,37 @@ export class OrdersService {
   }
 
   /**
+   * Red de seguridad: si el cajero se olvida de marcar un pedido, pasadas
+   * `staleHours` horas se cierra solo (delivery -> despachado, recojo y mesa ->
+   * entregado) para que listados y reportes no acumulen pedidos abiertos.
+   * Solo cierra lo que no está esperando un pago: los QR/split impagos los
+   * cancela `expireUnpaidOrders`. Devuelve cuántos cerró.
+   */
+  async closeStaleOrders(staleHours: number): Promise<number> {
+    const cutoff = new Date(Date.now() - staleHours * 3_600_000);
+    const open: OrderStatus[] = ['confirmed', 'preparing', 'ready'];
+    let closed = 0;
+    for (const deliveryType of ['delivery', 'pickup', 'dine_in'] as const) {
+      const result = await this.db
+        .updateTable('orders')
+        .set({ status: handoverStatusFor(deliveryType), status_updated_by: 'system', updated_at: new Date() })
+        .where('delivery_type', '=', deliveryType)
+        .where('status', 'in', open)
+        .where('created_at', '<', cutoff)
+        .where((eb) => eb.or([eb('payment_status', '=', 'paid'), eb('payment_method', '=', 'cash')]))
+        .executeTakeFirst();
+      closed += Number(result.numUpdatedRows);
+    }
+    return closed;
+  }
+
+  /**
    * Cancela los pedidos que siguen sin pagar pasado `ttlMinutes` (WhatsApp y
    * POS por igual): cocina no puede empezar un pedido impago, así que no tiene
    * sentido dejarlos vivos. Se salvan los que ya tienen algo cobrado (una pata
    * de split, un pago bancario detectado) y los que cocina ya aceptó
-   * (`preparing` o más): el efectivo contra entrega se cobra al llegar, pero un
-   * efectivo sin aceptar sí vence igual que los demás. Devuelve cuántos canceló.
+   * y el efectivo, que se cobra contra entrega y nunca vence. Devuelve cuántos
+   * canceló.
    */
   async expireUnpaidOrders(ttlMinutes: number): Promise<number> {
     const cancellable: OrderStatus[] = ['draft', 'awaiting_location', 'confirmed'];
@@ -1669,6 +1710,9 @@ export class OrdersService {
       .select(['id', 'order_number', 'customer_id', 'channel', 'payment_method'])
       .where('status', 'in', cancellable)
       .where('payment_status', '=', 'unpaid')
+      // El efectivo no vence: la comanda sale a cocina al crearse y se cobra al
+      // entregar. Si nadie lo cierra, lo cierra `closeStaleOrders`.
+      .where('payment_method', '!=', 'cash')
       .where('created_at', '<', cutoff)
       .where('cash_confirmed_at', 'is', null)
       .where('split_cash_confirmed_at', 'is', null)

@@ -25,9 +25,7 @@ function buildGuard(): ServiceOrStaffAuthGuard {
     verifyAsync: (token: string) =>
       token === 'staff-jwt'
         ? Promise.resolve(STAFF_PAYLOAD)
-        : token === 'driver-jwt'
-          ? Promise.resolve({ sub: 'user-2', username: 'moto', role: 'delivery' })
-          : Promise.reject(new Error('invalid')),
+        : Promise.reject(new Error('invalid')),
   } as unknown as JwtService;
 
   return new ServiceOrStaffAuthGuard(new ServiceAuthGuard(config), new JwtAuthGuard(jwt));
@@ -59,12 +57,6 @@ describe('ServiceOrStaffAuthGuard', () => {
 
     await buildGuard().canActivate(context);
     expect(request.apiClient).toBe(STAFF_API_CLIENT);
-  });
-
-  it('rechaza el JWT de un repartidor: solo usa /delivery/orders/*', async () => {
-    await expect(buildGuard().canActivate(contextWithHeader('Bearer driver-jwt'))).rejects.toThrow(
-      ForbiddenException,
-    );
   });
 
   it('rechaza un token que no es ni de servicio ni un JWT válido', async () => {

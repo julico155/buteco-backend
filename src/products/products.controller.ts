@@ -50,7 +50,7 @@ export class ProductsController {
   // Marcar agotado/disponible es una decisión de piso de cocina, no solo de admin.
   @Patch(':id/availability')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'kitchen')
+  @Roles('admin', 'cashier')
   setAvailability(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetAvailabilityDto) {
     return this.products.setAvailability(id, dto.available);
   }

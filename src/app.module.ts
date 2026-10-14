@@ -19,7 +19,6 @@ import { LateOrderRequestsModule } from './late-order-requests/late-order-reques
 import { AuthModule } from './auth/auth.module';
 import { CashRegisterModule } from './cash-register/cash-register.module';
 import { ReportsModule } from './reports/reports.module';
-import { DeliveryDriversModule } from './delivery-drivers/delivery-drivers.module';
 import { AgentLocationsModule } from './agent-locations/agent-locations.module';
 import { OrderReplacementModule } from './order-replacement/order-replacement.module';
 
@@ -44,7 +43,6 @@ import { OrderReplacementModule } from './order-replacement/order-replacement.mo
     AuthModule,
     CashRegisterModule,
     ReportsModule,
-    DeliveryDriversModule,
     AgentLocationsModule,
     OrderReplacementModule,
   ],

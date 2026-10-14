@@ -1,7 +1,7 @@
 import { IsIn, IsString, MinLength } from 'class-validator';
 import { DashboardUserRole } from '../../database/types';
 
-const ROLES: DashboardUserRole[] = ['admin', 'kitchen', 'cashier', 'delivery'];
+const ROLES: DashboardUserRole[] = ['admin', 'cashier'];
 
 export class CreateStaffUserDto {
   @IsString()

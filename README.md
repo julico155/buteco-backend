@@ -1,5 +1,14 @@
 # Backend de Buteco (basado en la plantilla restaurant-backend-base)
 
+> **Buteco — cambios sobre la plantilla (fase 1).** Solo hay dos roles de
+> staff, `admin` y `cashier`; no existen `kitchen` ni `delivery`. La cocina
+> trabaja con la comanda impresa, así que un pedido se cierra en un paso:
+> recojo y mesa -> `delivered` (entregado), delivery -> `out_for_delivery`
+> (despachado, sin confirmación de entrega). `preparing` y `ready` ya no se
+> alcanzan. El aviso de delivery sigue yendo al grupo de Telegram. Los pedidos
+> que nadie cierra se cierran solos a las `STALE_ORDER_CLOSE_HOURS` (12 h).
+> Varios documentos de `docs/` todavía describen la plantilla original.
+
 NestJS + Postgres. Base reutilizable: cada restaurante despliega su propia
 instancia y adapta las reglas de negocio por configuración (ver
 [docs/NUEVO-RESTAURANTE.md](docs/NUEVO-RESTAURANTE.md)), sin tocar código.

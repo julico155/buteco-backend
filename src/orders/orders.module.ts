@@ -11,6 +11,7 @@ import { PaymentOptionsModule } from '../payment-options/payment-options.module'
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { UnpaidOrdersExpiryCron } from './unpaid-orders-expiry.cron';
+import { StaleOrdersCloseCron } from './stale-orders-close.cron';
 import { QrRetryCron } from './qr-retry.cron';
 
 @Module({
@@ -26,7 +27,7 @@ import { QrRetryCron } from './qr-retry.cron';
     PaymentOptionsModule,
   ],
   controllers: [OrdersController],
-  providers: [OrdersService, UnpaidOrdersExpiryCron, QrRetryCron],
+  providers: [OrdersService, UnpaidOrdersExpiryCron, StaleOrdersCloseCron, QrRetryCron],
   exports: [OrdersService],
 })
 export class OrdersModule {}

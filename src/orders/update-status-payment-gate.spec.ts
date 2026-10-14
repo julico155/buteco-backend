@@ -31,11 +31,15 @@ function createService(order: FakeOrder, cashPrepaymentRequired = false) {
   lockedOrder.selectAll.mockReturnValue(lockedOrder);
   lockedOrder.where.mockReturnValue(lockedOrder);
 
+  let written: Record<string, unknown> = {};
   const updateOrder = { set: jest.fn(), where: jest.fn(), returningAll: jest.fn() };
-  updateOrder.set.mockReturnValue(updateOrder);
+  updateOrder.set.mockImplementation((values: Record<string, unknown>) => {
+    written = values;
+    return updateOrder;
+  });
   updateOrder.where.mockReturnValue(updateOrder);
   updateOrder.returningAll.mockReturnValue({
-    executeTakeFirst: jest.fn().mockResolvedValue({ ...order, status: 'preparing' }),
+    executeTakeFirst: jest.fn().mockImplementation(() => Promise.resolve({ ...order, ...written })),
   });
 
   const items = { selectAll: jest.fn(), where: jest.fn(), execute: jest.fn().mockResolvedValue([]) };
@@ -68,42 +72,102 @@ function createService(order: FakeOrder, cashPrepaymentRequired = false) {
   return { service, db };
 }
 
-describe('OrdersService.updateStatus — gate de pago antes de preparing', () => {
-  it('deja pasar un pedido payment_method=cash todavía unpaid (pago contra entrega)', async () => {
+describe('OrdersService.updateStatus — cierre manual y gate de pago', () => {
+  it('delivery en efectivo sin pagar se despacha (se cobra contra entrega)', async () => {
     const { service } = createService(baseOrder);
 
-    const result = await service.updateStatus('order-1', 'preparing', 'cocinero1', 'kitchen');
-    expect(result.status).toBe('preparing');
+    const result = await service.updateStatus('order-1', 'out_for_delivery', 'cajero1');
+    expect(result.status).toBe('out_for_delivery');
   });
 
-  it('sigue exigiendo paid para QR (sin excepción) — no es un cambio accidental de regla', async () => {
-    const { service } = createService({ ...baseOrder, payment_method: 'qr', payment_status: 'unpaid' });
+  it('recojo en efectivo se entrega', async () => {
+    const { service } = createService({ ...baseOrder, delivery_type: 'pickup' });
 
-    await expect(service.updateStatus('order-1', 'preparing', 'cocinero1', 'kitchen')).rejects.toMatchObject({
-      code: 'payment_required',
+    const result = await service.updateStatus('order-1', 'delivered', 'cajero1');
+    expect(result.status).toBe('delivered');
+  });
+
+  it('mesa se entrega', async () => {
+    const { service } = createService({ ...baseOrder, delivery_type: 'dine_in' });
+
+    const result = await service.updateStatus('order-1', 'delivered', 'cajero1');
+    expect(result.status).toBe('delivered');
+  });
+
+  it('un delivery no se marca como entregado, se despacha', async () => {
+    const { service } = createService(baseOrder);
+
+    await expect(service.updateStatus('order-1', 'delivered', 'cajero1')).rejects.toMatchObject({
+      code: 'invalid_handover_status',
     });
   });
 
-  it('sigue exigiendo paid para split (sin excepción)', async () => {
-    const { service } = createService({ ...baseOrder, payment_method: 'split', payment_status: 'unpaid' });
+  it('un recojo no se marca como despachado, se entrega', async () => {
+    const { service } = createService({ ...baseOrder, delivery_type: 'pickup' });
 
-    await expect(service.updateStatus('order-1', 'preparing', 'cocinero1', 'kitchen')).rejects.toBeInstanceOf(
+    await expect(service.updateStatus('order-1', 'out_for_delivery', 'cajero1')).rejects.toMatchObject({
+      code: 'invalid_handover_status',
+    });
+  });
+
+  it('preparing y ready ya no son destinos válidos', async () => {
+    const { service } = createService(baseOrder);
+
+    await expect(service.updateStatus('order-1', 'preparing', 'cajero1')).rejects.toBeInstanceOf(
+      DomainException,
+    );
+    await expect(service.updateStatus('order-1', 'ready', 'cajero1')).rejects.toBeInstanceOf(
       DomainException,
     );
   });
 
-  it('un pedido cash ya pagado (ej. confirmado a mano antes) también pasa, como siempre', async () => {
-    const { service } = createService({ ...baseOrder, payment_status: 'paid' });
+  it('un pedido viejo en preparing igual se puede cerrar', async () => {
+    const { service } = createService({ ...baseOrder, status: 'preparing' });
 
-    const result = await service.updateStatus('order-1', 'preparing', 'cocinero1', 'kitchen');
-    expect(result.status).toBe('preparing');
+    const result = await service.updateStatus('order-1', 'out_for_delivery', 'cajero1');
+    expect(result.status).toBe('out_for_delivery');
+  });
+
+  it('exige paid para QR antes de despachar', async () => {
+    const { service } = createService({ ...baseOrder, payment_method: 'qr', payment_status: 'unpaid' });
+
+    await expect(service.updateStatus('order-1', 'out_for_delivery', 'cajero1')).rejects.toMatchObject({
+      code: 'payment_required',
+    });
+  });
+
+  it('exige paid para split antes de entregar', async () => {
+    const { service } = createService({
+      ...baseOrder,
+      delivery_type: 'pickup',
+      payment_method: 'split',
+      payment_status: 'unpaid',
+    });
+
+    await expect(service.updateStatus('order-1', 'delivered', 'cajero1')).rejects.toMatchObject({
+      code: 'payment_required',
+    });
+  });
+
+  it('un QR ya pagado se despacha', async () => {
+    const { service } = createService({ ...baseOrder, payment_method: 'qr', payment_status: 'paid' });
+
+    const result = await service.updateStatus('order-1', 'out_for_delivery', 'cajero1');
+    expect(result.status).toBe('out_for_delivery');
+  });
+
+  it('cancelar no pasa por el gate de pago', async () => {
+    const { service } = createService({ ...baseOrder, delivery_type: 'pickup' }, true);
+
+    const result = await service.updateStatus('order-1', 'cancelled', 'cajero1');
+    expect(result.status).toBe('cancelled');
   });
 
   describe('con cashPrepaymentRequired', () => {
-    it('exige paid para efectivo de pickup', async () => {
+    it('exige paid para efectivo de recojo', async () => {
       const { service } = createService({ ...baseOrder, delivery_type: 'pickup' }, true);
 
-      await expect(service.updateStatus('order-1', 'preparing', 'cocinero1', 'kitchen')).rejects.toMatchObject({
+      await expect(service.updateStatus('order-1', 'delivered', 'cajero1')).rejects.toMatchObject({
         code: 'payment_required',
       });
     });
@@ -111,7 +175,7 @@ describe('OrdersService.updateStatus — gate de pago antes de preparing', () =>
     it('exige paid para efectivo de mesa', async () => {
       const { service } = createService({ ...baseOrder, delivery_type: 'dine_in' }, true);
 
-      await expect(service.updateStatus('order-1', 'preparing', 'cocinero1', 'kitchen')).rejects.toMatchObject({
+      await expect(service.updateStatus('order-1', 'delivered', 'cajero1')).rejects.toMatchObject({
         code: 'payment_required',
       });
     });
@@ -122,22 +186,22 @@ describe('OrdersService.updateStatus — gate de pago antes de preparing', () =>
         true,
       );
 
-      const result = await service.updateStatus('order-1', 'preparing', 'cocinero1', 'kitchen');
-      expect(result.status).toBe('preparing');
+      const result = await service.updateStatus('order-1', 'delivered', 'cajero1');
+      expect(result.status).toBe('delivered');
     });
 
     it('no afecta al efectivo de delivery (lo cobra el repartidor)', async () => {
       const { service } = createService(baseOrder, true);
 
-      const result = await service.updateStatus('order-1', 'preparing', 'cocinero1', 'kitchen');
-      expect(result.status).toBe('preparing');
+      const result = await service.updateStatus('order-1', 'out_for_delivery', 'cajero1');
+      expect(result.status).toBe('out_for_delivery');
     });
   });
 
-  it('con el flag apagado (default), el efectivo de pickup pasa sin pago previo', async () => {
+  it('con el flag apagado (default), el efectivo de recojo se entrega sin pago previo', async () => {
     const { service } = createService({ ...baseOrder, delivery_type: 'pickup' }, false);
 
-    const result = await service.updateStatus('order-1', 'preparing', 'cocinero1', 'kitchen');
-    expect(result.status).toBe('preparing');
+    const result = await service.updateStatus('order-1', 'delivered', 'cajero1');
+    expect(result.status).toBe('delivered');
   });
 });

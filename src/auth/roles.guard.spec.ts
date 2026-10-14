@@ -22,7 +22,7 @@ function buildGuard(requiredRoles?: DashboardUserRole[]): RolesGuard {
 
 describe('RolesGuard', () => {
   it('deja pasar cuando el endpoint no declara roles', () => {
-    expect(buildGuard(undefined).canActivate(buildContext({ role: 'kitchen' }))).toBe(true);
+    expect(buildGuard(undefined).canActivate(buildContext({ role: 'cashier' }))).toBe(true);
   });
 
   it('deja pasar al staff con un rol permitido', () => {
@@ -32,7 +32,7 @@ describe('RolesGuard', () => {
   });
 
   it('rechaza al staff con un rol no permitido', () => {
-    expect(() => buildGuard(['admin']).canActivate(buildContext({ role: 'kitchen' }))).toThrow(
+    expect(() => buildGuard(['admin']).canActivate(buildContext({ role: 'cashier' }))).toThrow(
       ForbiddenException,
     );
   });

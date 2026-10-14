@@ -41,14 +41,14 @@ export class OrdersController {
     return this.orders.findById(id);
   }
 
-  // Tablero de cocina (status/limit/offset) y cuadre de caja de fin de
+  // Pedidos activos (status/limit/offset) y cuadre de caja de fin de
   // noche con las motos (delivery_type=delivery&payment_status=unpaid, ver
   // docs/pos-integration.md) — login de staff (JWT), no el bearer estático
   // del POS, así queda registrado qué persona movió cada pedido
   // (status_updated_by).
   @Get('orders')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('kitchen', 'cashier', 'admin')
+  @Roles('cashier', 'admin')
   @ApiQuery({ name: 'customer_id', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'delivery_type', required: false, type: String })
@@ -128,26 +128,26 @@ export class OrdersController {
   // marcar cobros en efectivo (un token filtrado daría pedidos por pagados).
   @Post('orders/:id/cash/confirm')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'cashier', 'kitchen')
+  @Roles('admin', 'cashier')
   confirmCash(@Param('id', ParseUUIDPipe) id: string) {
     return this.orders.confirmCash(id);
   }
 
   @Post('orders/:id/cash/cancel')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'cashier', 'kitchen')
+  @Roles('admin', 'cashier')
   cancelCash(@Param('id', ParseUUIDPipe) id: string) {
     return this.orders.cancelCash(id);
   }
 
   @Patch('orders/:id/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('kitchen', 'admin')
+  @Roles('cashier', 'admin')
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateOrderStatusDto,
     @CurrentStaffUser() staffUser: JwtPayload,
   ) {
-    return this.orders.updateStatus(id, dto.to, staffUser.username, staffUser.role);
+    return this.orders.updateStatus(id, dto.to, staffUser.username);
   }
 }

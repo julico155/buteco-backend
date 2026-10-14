@@ -399,7 +399,7 @@ export interface OperationalSettingsTable {
   updated_at: Timestamp;
 }
 
-export type DashboardUserRole = 'admin' | 'kitchen' | 'cashier' | 'delivery';
+export type DashboardUserRole = 'admin' | 'cashier';
 
 export interface DashboardUsersTable {
   id: Generated<string>;

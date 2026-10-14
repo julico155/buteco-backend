@@ -8,7 +8,7 @@ import { Database, DashboardUserRole } from '../src/database/types';
 // primer usuario solo puede crearse fuera de la API.
 
 const BCRYPT_ROUNDS = 10;
-const ROLES: DashboardUserRole[] = ['admin', 'kitchen', 'cashier'];
+const ROLES: DashboardUserRole[] = ['admin', 'cashier'];
 
 const USAGE = `
 Uso: npm run create-admin -- <username> [role]

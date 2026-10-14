@@ -52,6 +52,8 @@ export interface AppConfig {
   posQrMode: 'bank' | 'manual';
   /** Minutos tras los que un pedido sin pagar se cancela solo (WhatsApp y POS). */
   unpaidOrderTtlMinutes: number;
+  /** Horas tras las que un pedido abierto que nadie cerró se cierra solo (entregado / despachado). */
+  staleOrderCloseHours: number;
   /**
    * Minutos que una solicitud fuera de horario (late_order_requests) espera la
    * decisión del staff antes de vencer. Si no se define, usa el mismo valor que
@@ -60,10 +62,6 @@ export interface AppConfig {
   lateOrderRequestTtlMinutes: number;
   /** Destino (chat/grupo) del aviso de delivery que el gateway de mensajería sabe resolver. */
   deliveryNoticeChatRef: string;
-  /** Radio (m) alrededor del local dentro del cual un repartidor puede aceptar un pedido de delivery. */
-  deliveryAcceptRadiusMeters: number;
-  /** Radio (m) entre dos pedidos "disponibles" para reportarlos como cercanos entre sí (nunca se expone su lat/lng cruda antes de aceptar). */
-  deliveryNearbyRadiusMeters: number;
   /**
    * Teléfonos (normalizados) que saltan el gate de horario SOLO para
    * channel='web' — para probar el checkout fuera de horario sin abrir al
@@ -173,12 +171,10 @@ export default (): AppConfig => ({
     account: process.env.BANECO_ACCOUNT ?? '',
   },
   posQrMode: process.env.POS_QR_MODE === 'manual' ? 'manual' : 'bank',
-  deliveryAcceptRadiusMeters:
-    Number(process.env.DELIVERY_ACCEPT_RADIUS_METERS) > 0 ? Number(process.env.DELIVERY_ACCEPT_RADIUS_METERS) : 150,
-  deliveryNearbyRadiusMeters:
-    Number(process.env.DELIVERY_NEARBY_RADIUS_METERS) > 0 ? Number(process.env.DELIVERY_NEARBY_RADIUS_METERS) : 500,
   unpaidOrderTtlMinutes:
     Number(process.env.UNPAID_ORDER_TTL_MINUTES) > 0 ? Number(process.env.UNPAID_ORDER_TTL_MINUTES) : 20,
+  staleOrderCloseHours:
+    Number(process.env.STALE_ORDER_CLOSE_HOURS) > 0 ? Number(process.env.STALE_ORDER_CLOSE_HOURS) : 12,
   lateOrderRequestTtlMinutes:
     Number(process.env.LATE_ORDER_REQUEST_TTL_MINUTES) > 0
       ? Number(process.env.LATE_ORDER_REQUEST_TTL_MINUTES)

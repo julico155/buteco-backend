@@ -13,7 +13,7 @@ describe('ReportsController — roles', () => {
 
   it('KPIs, serie de ventas y top de productos también los ven caja y cocina', () => {
     for (const method of ['getKpis', 'getTimeseries', 'getTopProducts'] as const) {
-      expect(rolesOf(method)).toEqual(['admin', 'cashier', 'kitchen']);
+      expect(rolesOf(method)).toEqual(['admin', 'cashier']);
     }
   });
 

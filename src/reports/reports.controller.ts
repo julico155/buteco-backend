@@ -36,14 +36,14 @@ export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
   @Get('kpis')
-  @Roles('admin', 'cashier', 'kitchen')
+  @Roles('admin', 'cashier')
   @FilterQueries()
   getKpis(@Query() query: Query_) {
     return this.reports.getKpis(parseSalesFilters(query));
   }
 
   @Get('sales/timeseries')
-  @Roles('admin', 'cashier', 'kitchen')
+  @Roles('admin', 'cashier')
   @FilterQueries()
   @ApiQuery({ name: 'group_by', required: false, enum: ['day', 'hour'] })
   getTimeseries(@Query() query: Query_) {
@@ -71,7 +71,7 @@ export class ReportsController {
   }
 
   @Get('products/top')
-  @Roles('admin', 'cashier', 'kitchen')
+  @Roles('admin', 'cashier')
   @FilterQueries()
   @ApiQuery({ name: 'limit', required: false, type: Number })
   getTopProducts(@Query() query: Query_) {
