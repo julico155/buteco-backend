@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+/storage/
+.claude/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# Colección de Postman para probar la API del banco directo — el
+# environment trae credenciales reales de certificación, nunca al repo.
+postman/baneco-certificacion/

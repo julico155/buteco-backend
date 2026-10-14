@@ -1,0 +1,1948 @@
+{
+  "info": {
+    "name": "Backend central para restaurantes",
+    "description": "Colección completa de todos los endpoints. Pensada para correrse en orden dentro de cada carpeta: varias requests capturan el id de lo que crean (categoría, producto, cliente, pedido, etc.) en variables de colección para que las siguientes requests las reusen solas.\n\nAntes de correr nada: seteá `baseUrl` (local: http://localhost:3000) y corré 'Login (admin)' en la carpeta Auth para poblar `jwtToken`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "serviceToken",
+      "value": "dev-whatsapp-gateway-token",
+      "description": "Cualquiera de los api_client de SERVICE_AUTH_TOKENS sirve para los endpoints con ServiceAuthGuard."
+    },
+    {
+      "key": "posToken",
+      "value": "dev-pos-token"
+    },
+    {
+      "key": "jwtToken",
+      "value": "",
+      "description": "Se llena solo al correr 'Login (admin)'."
+    },
+    {
+      "key": "adminUsername",
+      "value": "admin_test"
+    },
+    {
+      "key": "adminPassword",
+      "value": "AdminPass123"
+    },
+    {
+      "key": "categoryId",
+      "value": ""
+    },
+    {
+      "key": "productId",
+      "value": ""
+    },
+    {
+      "key": "promotionId",
+      "value": ""
+    },
+    {
+      "key": "promotionRevision",
+      "value": ""
+    },
+    {
+      "key": "customerId",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "lateOrderRequestId",
+      "value": ""
+    },
+    {
+      "key": "paymentAttemptId",
+      "value": ""
+    },
+    {
+      "key": "staffUserId",
+      "value": ""
+    },
+    {
+      "key": "cashSessionId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{adminUsername}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Requiere que ya exista este dashboard_user (el primer admin se bootstrapea por SQL)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('jwtToken', body.accessToken);",
+                  "  console.log('jwtToken actualizado');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear staff user (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"cocina1\",\n  \"password\": \"CocinaPass123\",\n  \"role\": \"kitchen\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "users"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) { pm.collectionVariables.set('staffUserId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar staff users (admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "users"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Activar/desactivar staff user (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/users/{{staffUserId}}/active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "users",
+                "{{staffUserId}}",
+                "active"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Categories",
+      "item": [
+        {
+          "name": "Listar categorías",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "categories"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear categoría (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bebidas\",\n  \"sortOrder\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "categories"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) { pm.collectionVariables.set('categoryId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Editar categoría (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": true,\n  \"sortOrder\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories/{{categoryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "categories",
+                "{{categoryId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "Listar productos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear producto (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"coca-500\",\n  \"name\": \"Coca-Cola 500ml\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"price\": 10,\n  \"complements\": [\n    {\n      \"name\": \"hielo\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) { pm.collectionVariables.set('productId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Editar producto (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 12\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products",
+                "{{productId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Marcar disponibilidad (admin o kitchen)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"available\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/{{productId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products",
+                "{{productId}}",
+                "availability"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Subir foto de producto (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mimeType\": \"image/png\",\n  \"fileBase64\": \"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/{{productId}}/image",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products",
+                "{{productId}}",
+                "image"
+              ]
+            },
+            "description": "Reemplaza la foto anterior si ya había una (misma key en el bucket). Máx 5 MB. Requiere JWT con rol admin — el token de servicio del POS no alcanza."
+          }
+        },
+        {
+          "name": "Descargar foto de producto",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/products/{{productId}}/image",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products",
+                "{{productId}}",
+                "image"
+              ]
+            },
+            "description": "Streaming autenticado, nunca una URL directa al bucket — sirve tanto con el JWT de staff como con el bearer de servicio (whatsapp-gateway/pos)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Promotions",
+      "item": [
+        {
+          "name": "Listar promociones",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/promotions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "promotions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ver una promoción",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/promotions/{{promotionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "promotions",
+                "{{promotionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear promoción (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Combo Duo\",\n  \"promoPrice\": 25,\n  \"items\": [\n    { \"productId\": \"{{productId}}\", \"quantity\": 2 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/promotions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "promotions"
+              ]
+            },
+            "description": "items necesita ArrayMinSize(2) — o dos líneas distintas, o una sola línea con quantity>=2 no alcanza si el validador pide 2 elementos en el array; ajustá con un segundo producto real."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('promotionId', body.id);",
+                  "  pm.collectionVariables.set('promotionRevision', body.revision);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Editar promoción (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"promoPrice\": 22\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/promotions/{{promotionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "promotions",
+                "{{promotionId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) { pm.collectionVariables.set('promotionRevision', pm.response.json().revision); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activar/desactivar promoción (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/promotions/{{promotionId}}/active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "promotions",
+                "{{promotionId}}",
+                "active"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Archivar/desarchivar promoción (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"archived\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/promotions/{{promotionId}}/archived",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "promotions",
+                "{{promotionId}}",
+                "archived"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Duplicar promoción (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/promotions/{{promotionId}}/duplicate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "promotions",
+                "{{promotionId}}",
+                "duplicate"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reordenar promoción (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sortOrder\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/promotions/{{promotionId}}/move",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "promotions",
+                "{{promotionId}}",
+                "move"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "Find or create cliente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+59171234567\",\n  \"name\": \"Cliente de prueba\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/customers/find-or-create",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customers",
+                "find-or-create"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) { pm.collectionVariables.set('customerId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ver cliente por id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/customers/{{customerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customers",
+                "{{customerId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Buscar cliente por teléfono",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/customers?phone=+59171234567",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "phone",
+                  "value": "+59171234567"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Operational Settings",
+      "item": [
+        {
+          "name": "Ver configuración",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/operational-settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "operational-settings"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Editar configuración (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restaurantLatitude\": -16.5,\n  \"restaurantLongitude\": -68.15,\n  \"rainSurchargeEnabled\": false,\n  \"businessOpensHour\": 17,\n  \"businessClosesHour\": 23,\n  \"requireOpenRegister\": false,\n  \"outOfHoursPolicy\": \"accept\",\n  \"cashPrepaymentRequired\": false,\n  \"manualQuoteMaxAmount\": 500,\n  \"channelExternalEnabled\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/operational-settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "operational-settings"
+              ]
+            },
+            "description": "Todos los campos son opcionales. cashPrepaymentRequired: el efectivo de pickup/mesa se cobra antes de cocinar. manualQuoteMaxAmount: tope de la cotización manual de delivery. channelExternalEnabled: prende el canal del POS ajeno (token `external`)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delivery Tariff Bands",
+      "item": [
+        {
+          "name": "Ver bandas (admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/delivery/tariff-bands",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "delivery",
+                "tariff-bands"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reemplazar bandas (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bands\": [\n    {\n      \"maxDistanceMeters\": 1000,\n      \"feeAmount\": 5\n    },\n    {\n      \"maxDistanceMeters\": 3000,\n      \"feeAmount\": 9\n    },\n    {\n      \"maxDistanceMeters\": 8000,\n      \"feeAmount\": 16\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/delivery/tariff-bands",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "delivery",
+                "tariff-bands"
+              ]
+            },
+            "description": "Reemplaza la tabla completa en una transacción. band_index sale de la posición; las distancias tienen que crecer."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payment Options",
+      "item": [
+        {
+          "name": "Ver formas de pago (available, channels)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/payment-options",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payment-options"
+              ]
+            },
+            "description": "Pintar solo las filas con available: true. available = enabled + canal permitido para la credencial + banco listo si hace falta."
+          }
+        },
+        {
+          "name": "Editar formas de pago (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"options\": [\n    {\n      \"serviceType\": \"pickup\",\n      \"paymentMethod\": \"split\",\n      \"enabled\": false\n    },\n    {\n      \"serviceType\": \"pickup\",\n      \"paymentMethod\": \"qr\",\n      \"channels\": [\n        \"pos\",\n        \"web\"\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payment-options",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payment-options"
+              ]
+            },
+            "description": "Por fila: enabled y/o channels (pos | whatsapp | web). Activar QR/split sin credenciales del banco da 409 bank_not_configured."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cash Register",
+      "item": [
+        {
+          "name": "Abrir caja (admin o cashier)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"openingAmount\": 200\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/cash-register/sessions/open",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cash-register",
+                "sessions",
+                "open"
+              ]
+            },
+            "description": "Efectivo con el que arranca el turno. Una sola caja abierta a la vez en todo el local: si ya hay una, da 409 cash_register_already_open. Sin caja abierta no se puede confirmar ningun cobro (ni cash ni QR)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) { pm.collectionVariables.set('cashSessionId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Caja actual (con totales en vivo)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cash-register/sessions/current",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cash-register",
+                "sessions",
+                "current"
+              ]
+            },
+            "description": "Devuelve la sesion abierta o null. Trae liveTotals con lo vendido y el esperado HASTA ESTE MOMENTO (los campos congelados de la raiz siguen en null hasta cerrar). Cualquier rol de staff puede consultarlo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const b = pm.response.text(); if (b) { const s = pm.response.json(); if (s && s.id) { pm.collectionVariables.set('cashSessionId', s.id); } }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cerrar caja (admin o cashier)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"countedCashAmount\": 950,\n  \"notes\": \"cierre de prueba\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/cash-register/sessions/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cash-register",
+                "sessions",
+                "close"
+              ]
+            },
+            "description": "countedCashAmount es lo que el cajero conto a mano. El backend calcula expectedCashAmount y cashDifference (negativo = falto plata) y los congela: no se recalculan nunca mas. 409 cash_register_not_open si no hay ninguna abierta."
+          }
+        },
+        {
+          "name": "Historial de cajas (admin o cashier)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cash-register/sessions?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cash-register",
+                "sessions"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Cierres pasados, mas recientes primero."
+          }
+        },
+        {
+          "name": "Detalle de una caja",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cash-register/sessions/{{cashSessionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cash-register",
+                "sessions",
+                "{{cashSessionId}}"
+              ]
+            },
+            "description": "Para reimprimir el reporte de un cierre."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Listar pedidos (tablero cocina — JWT kitchen/cashier/admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders?limit=20&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "customer_id",
+                  "value": "{{customerId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "confirmed",
+                  "disabled": true
+                },
+                {
+                  "key": "delivery_type",
+                  "value": "delivery",
+                  "disabled": true
+                },
+                {
+                  "key": "payment_status",
+                  "value": "unpaid",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "El listado (tablero) requiere JWT con rol kitchen, cashier o admin — ya no el token de servicio. Correr 'Login (admin)' alcanza para probar."
+          }
+        },
+        {
+          "name": "Cuadre fin de noche: delivery sin cobrar (JWT cashier/admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders?delivery_type=delivery&payment_status=unpaid",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "delivery_type",
+                  "value": "delivery"
+                },
+                {
+                  "key": "payment_status",
+                  "value": "unpaid"
+                }
+              ]
+            },
+            "description": "Pantalla de fin de noche: pedidos de delivery pagados en efectivo (pago contra entrega) que el repartidor todavía no liquidó. Para marcar uno cobrado, usar 'Confirmar pago en efectivo' sobre ese orderId — es el mismo endpoint que el cobro normal, no hay uno separado para cuadre."
+          }
+        },
+        {
+          "name": "Ver pedido por id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear pedido (pickup, QR, canal POS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{posToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"channel\": \"pos\",\n  \"customerName\": \"Cliente de prueba\",\n  \"deliveryType\": \"pickup\",\n  \"paymentMethod\": \"qr\",\n  \"bypassHoursGate\": true,\n  \"items\": [\n    { \"productId\": \"{{productId}}\", \"quantity\": 1 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "bypassHoursGate solo funciona con channel: 'pos'. Cada ejecución manda una Idempotency-Key nueva ({{$guid}}) así siempre crea un pedido nuevo en vez de repetir el anterior."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) { pm.collectionVariables.set('orderId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear pedido con complemento excluido (2 líneas mismo producto)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{posToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"channel\": \"pos\",\n  \"customerName\": \"Cliente de prueba\",\n  \"deliveryType\": \"dine_in\",\n  \"paymentMethod\": \"cash\",\n  \"bypassHoursGate\": true,\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 3\n    },\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 1,\n      \"excludedComplements\": [\n        \"cebolla\"\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Dos líneas del mismo productId: una normal y otra sin un complemento del producto (ej. cebolla). No se pueden fusionar en una sola línea porque cada unidad puede llevar una selección distinta."
+          }
+        },
+        {
+          "name": "Crear pedido con delivery (canal whatsapp, dentro de horario)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"channel\": \"whatsapp\",\n  \"customerName\": \"Cliente de prueba\",\n  \"deliveryType\": \"delivery\",\n  \"paymentMethod\": \"cash\",\n  \"items\": [\n    { \"productId\": \"{{productId}}\", \"quantity\": 1 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Sin bypass: si el local está cerrado ahora mismo (fuera del margen 17-23 hora La Paz), da 409 'closed'. Adentro del margen, si no hay caja abierta (POST /cash-register/sessions/open) da 202 (late_order_request) en vez de crear el pedido directo. Usá la request 'pickup, canal POS' para probar sin depender del horario ni de la caja."
+          }
+        },
+        {
+          "name": "Pedir ubicación al cliente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/location-request",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "location-request"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Adjuntar ubicación (dispara cotización delivery)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": -16.51,\n  \"longitude\": -68.12\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/location",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "location"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Agregar nota de cocina",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Sin cebolla\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/kitchen-note",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "kitchen-note"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cambiar a pickup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/switch-to-pickup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "switch-to-pickup"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Confirmar pago en efectivo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/cash/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "cash",
+                "confirm"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cancelar confirmación de efectivo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/cash/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "cash",
+                "cancel"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Pago dividido: armar split efectivo + QR (JWT cashier/admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cashAmount\": 20,\n  \"qrAmount\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/split-payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "split-payment"
+              ]
+            },
+            "description": "cashAmount + qrAmount tienen que sumar EXACTO el totalAmount del pedido, o 400. Solo mientras el pedido sigue unpaid."
+          }
+        },
+        {
+          "name": "Cambiar estado del pedido (tablero cocina — JWT kitchen/admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"preparing\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "status"
+              ]
+            },
+            "description": "Transiciones legales: confirmed→preparing→ready→out_for_delivery→delivered, o cancelled desde casi cualquier estado. Requiere JWT rol kitchen o admin; la respuesta trae statusUpdatedBy con el username de quien lo cambió. confirmed→preparing da 409 payment_required si payment_status no es 'paid' — excepto delivery+cash (pago contra entrega real, el repartidor cobra al llegar)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delivery",
+      "item": [
+        {
+          "name": "Cotización standalone",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"latitude\": -16.51,\n  \"longitude\": -68.12\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/delivery/quotes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "delivery",
+                "quotes"
+              ]
+            },
+            "description": "Requiere restaurant_latitude/longitude ya configurados en Operational Settings, si no tira 500 restaurant_location_not_configured."
+          }
+        },
+        {
+          "name": "Cotizar delivery de un pedido",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/delivery/quote",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "delivery",
+                "quote"
+              ]
+            },
+            "description": "Normalmente se dispara solo al adjuntar ubicación (POST /orders/:id/location) — esta request es para forzarlo/reintentarlo a mano."
+          }
+        },
+        {
+          "name": "Cotización manual (staff, por encima del techo)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 45.00\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/delivery/quote/manual",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "delivery",
+                "quote",
+                "manual"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payment Attempts",
+      "item": [
+        {
+          "name": "Listar intentos de pago de un pedido",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/payment-attempts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "payment-attempts"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (Array.isArray(body) && body.length > 0) { pm.collectionVariables.set('paymentAttemptId', body[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decidir intento de pago",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"accepted\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payment-attempts/{{paymentAttemptId}}/decide",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payment-attempts",
+                "{{paymentAttemptId}}",
+                "decide"
+              ]
+            },
+            "description": "decision: 'accepted' | 'rejected'. Si gana el CAS, propaga a orders.payment_status y avisa al cliente."
+          }
+        },
+        {
+          "name": "Confirmar pago QR presencial (cashier/admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"accepted\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}/payment-attempts/confirm-presencial",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "payment-attempts",
+                "confirm-presencial"
+              ]
+            },
+            "description": "Cobro QR en el mostrador, sin foto: crea y decide el payment_attempt en el mismo paso. Requiere JWT rol cashier o admin. El pedido debe tener paymentMethod 'qr'. 409 payment_attempt_already_live si ya hay uno vivo (pending_review o accepted) para ese pedido."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Late Order Requests",
+      "item": [
+        {
+          "name": "Listar cola (pendientes)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/late-order-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "late-order-requests"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (Array.isArray(body) && body.length > 0) { pm.collectionVariables.set('lateOrderRequestId', body[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ver solicitud por id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{serviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/late-order-requests/{{lateOrderRequestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "late-order-requests",
+                "{{lateOrderRequestId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Aceptar (admin o cashier)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/late-order-requests/{{lateOrderRequestId}}/accept",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "late-order-requests",
+                "{{lateOrderRequestId}}",
+                "accept"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Rechazar (admin o cashier)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwtToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Producto agotado\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/late-order-requests/{{lateOrderRequestId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "late-order-requests",
+                "{{lateOrderRequestId}}",
+                "reject"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

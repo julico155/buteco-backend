@@ -1,0 +1,9 @@
+# Despliegue con Nixpacks (Dokploy, Railway). Sin esto el arranque por defecto
+# sería el script `start` del package.json (`nest start`): no migra y compila
+# al vuelo en producción.
+#
+# Migra la base y arranca. `migrate:up` es idempotente (solo corre lo nuevo);
+# si una migración falla, la app no arranca y el error queda en los logs. El
+# primer admin lo crea la propia app con BOOTSTRAP_ADMIN_PASSWORD.
+[start]
+cmd = "npm run migrate:up && npm run start:prod"
