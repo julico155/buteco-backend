@@ -59,6 +59,13 @@ Reglas:
 - `POST /orders` con `deliveryType: "dine_in"` se rechaza (salvo canal
   `external`): el consumo en mesa se abre desde la mesa.
 
+## Impresión
+
+La imprime el POS; el backend solo manda el detalle. La cuenta (y la respuesta de
+`POST .../rounds`) trae `rounds[]` con `roundNumber`, `addedAt` y las líneas de
+cada ronda, `notes` y `latestRoundNumber`: la comanda de una ronda es esa
+ronda, y la cuenta del cliente es todo `rounds` más `totalAmount`.
+
 ## Datos
 
 - `orders.table_id`, `orders.bill_requested_at`, estado `open`.
@@ -73,4 +80,3 @@ Reglas:
 
 - Endpoint para anular líneas de una cuenta abierta.
 - Reservas (adelanto de 100 Bs descontable).
-- Impresión de comanda por ronda.

@@ -51,6 +51,10 @@ export interface TableAccountResponse {
   totalAmount: number;
   openedAt: string;
   billRequestedAt: string | null;
+  /** Nota del pedido (para la comanda). */
+  notes: string | null;
+  /** Ronda más reciente: la que el POS imprime al sumar consumo. 0 si todavía no hay consumo. */
+  latestRoundNumber: number;
   rounds: AccountRound[];
 }
 
@@ -531,6 +535,7 @@ export class TableAccountsService {
       total_amount: string;
       created_at: Date | string;
       bill_requested_at: Date | string | null;
+      notes: string | null;
     },
     tableLabel: string,
   ): Promise<TableAccountResponse> {
@@ -562,6 +567,8 @@ export class TableAccountsService {
       });
     }
 
+    const sortedRounds = [...rounds.values()].sort((a, b) => a.roundNumber - b.roundNumber);
+
     return {
       orderId: order.id,
       orderNumber: order.order_number,
@@ -573,7 +580,9 @@ export class TableAccountsService {
       totalAmount: Number(order.total_amount),
       openedAt: new Date(order.created_at).toISOString(),
       billRequestedAt: order.bill_requested_at ? new Date(order.bill_requested_at).toISOString() : null,
-      rounds: [...rounds.values()].sort((a, b) => a.roundNumber - b.roundNumber),
+      notes: order.notes,
+      latestRoundNumber: sortedRounds.length > 0 ? sortedRounds[sortedRounds.length - 1].roundNumber : 0,
+      rounds: sortedRounds,
     };
   }
 }
