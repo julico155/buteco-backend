@@ -23,7 +23,7 @@ import { TablesService } from './tables.service';
 import { TableAccountsService } from './table-accounts.service';
 import { CreateFloorDto, UpdateFloorDto } from './dto/floor.dto';
 import { CreateTableDto, SaveLayoutDto, UpdateTableDto } from './dto/table.dto';
-import { AddRoundDto, CloseAccountDto, OpenAccountDto } from './dto/account.dto';
+import { AddRoundDto, CloseAccountDto, OpenAccountDto, VoidLineDto } from './dto/account.dto';
 
 /**
  * Plano del local y cuentas de mesa. Todo con JWT de staff: es una acción
@@ -140,6 +140,31 @@ export class TablesController {
   ) {
     const outcome = await this.accounts.addRound(id, dto, idempotencyKey, staffUser.username);
     return outcome.body;
+  }
+
+  // Anular no borra: la línea queda marcada (quién y por qué) y deja de sumar.
+  @Post('tables/:id/account/items/:itemId/void')
+  @Roles('admin', 'cashier')
+  @HttpCode(200)
+  voidItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: VoidLineDto,
+    @CurrentStaffUser() staffUser: JwtPayload,
+  ) {
+    return this.accounts.voidLine(id, 'item', itemId, dto.reason, staffUser.username);
+  }
+
+  @Post('tables/:id/account/promotions/:promotionId/void')
+  @Roles('admin', 'cashier')
+  @HttpCode(200)
+  voidPromotion(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('promotionId', ParseUUIDPipe) promotionId: string,
+    @Body() dto: VoidLineDto,
+    @CurrentStaffUser() staffUser: JwtPayload,
+  ) {
+    return this.accounts.voidLine(id, 'promotion', promotionId, dto.reason, staffUser.username);
   }
 
   @Post('tables/:id/account/bill-request')

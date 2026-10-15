@@ -42,6 +42,8 @@ Se **deduce** de la cuenta viva, no se guarda:
 | POST | `/tables/:id/account` | Abre la cuenta (mesa vacía es válido). Body opcional: `customerName`, `notes` |
 | GET | `/tables/:id/account` | Cuenta con sus rondas |
 | POST | `/tables/:id/account/rounds` | Suma una ronda. **Requiere `Idempotency-Key`** |
+| POST | `/tables/:id/account/items/:itemId/void` | Anula una línea (motivo obligatorio) |
+| POST | `/tables/:id/account/promotions/:promotionId/void` | Anula un combo (motivo obligatorio) |
 | POST | `/tables/:id/account/bill-request` | "Pidió la cuenta" |
 | POST | `/tables/:id/account/close` | Elige cómo se cobra (`cash` / `qr` / `split`) |
 | POST | `/tables/:id/account/reopen` | Vuelve a abrir una cuenta cerrada con QR pendiente |
@@ -59,6 +61,13 @@ Reglas:
 - `POST /orders` con `deliveryType: "dine_in"` se rechaza (salvo canal
   `external`): el consumo en mesa se abre desde la mesa.
 
+### Anular
+
+Anular **no borra**: la línea queda en la cuenta marcada (`voided`, `voidedBy`,
+`voidReason`, `voidedAt`), deja de sumar al total y a la comanda, y sigue
+apareciendo al revisar la cuenta. No imprime nada en el momento. Solo en cuentas
+abiertas: una cuenta ya cerrada se reabre primero.
+
 ## Impresión
 
 La imprime el POS; el backend solo manda el detalle. La cuenta (y la respuesta de
@@ -71,12 +80,11 @@ ronda, y la cuenta del cliente es todo `rounds` más `totalAmount`.
 - `orders.table_id`, `orders.bill_requested_at`, estado `open`.
 - `order_items` / `order_promotions`: `round_number`, `added_at` y columnas de
   anulación (`voided_at`, `voided_by`, `void_reason`). El total, la comanda y
-  los reportes ignoran lo anulado. **Todavía no hay endpoint para anular**.
+  los reportes ignoran lo anulado.
 - Índice único parcial: una mesa no puede tener dos cuentas vivas.
 - Mientras la cuenta está `open`, `payment_method` queda en `cash` como valor
   provisional; se fija al cerrar.
 
 ## Pendiente
 
-- Endpoint para anular líneas de una cuenta abierta.
 - Reservas (adelanto de 100 Bs descontable).

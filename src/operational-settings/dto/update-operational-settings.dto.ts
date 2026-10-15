@@ -1,4 +1,7 @@
 import {
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -6,9 +9,14 @@ import {
   IsLongitude,
   IsNumber,
   IsOptional,
+  IsString,
+  Matches,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
+
+const CLOCK_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export class UpdateOperationalSettingsDto {
   @IsOptional()
@@ -127,4 +135,28 @@ export class UpdateOperationalSettingsDto {
   @IsOptional()
   @IsBoolean()
   cashPrepaymentRequired?: boolean;
+
+  /** Días que abre el local: domingo = 0 … sábado = 6. Vacío no vale: el local tiene que abrir algún día. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  openWeekdays?: number[];
+
+  /** Hora límite (HH:MM) para aceptar pedidos de delivery. null = sin tope propio. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @Matches(CLOCK_TIME, { message: 'deliveryLastOrderTime debe tener formato HH:MM' })
+  deliveryLastOrderTime?: string | null;
+
+  /** Hora límite (HH:MM) para aceptar pedidos de recojo. null = sin tope propio. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @Matches(CLOCK_TIME, { message: 'pickupLastOrderTime debe tener formato HH:MM' })
+  pickupLastOrderTime?: string | null;
 }

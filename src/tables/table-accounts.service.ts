@@ -28,16 +28,31 @@ const ACCOUNT_CHANNEL = 'pos' as const;
 /** Forma de pago mientras la cuenta está abierta: todavía no se eligió. */
 const PLACEHOLDER_PAYMENT_METHOD: OrderPaymentMethod = 'cash';
 
+/** Una línea anulada se sigue mostrando, marcada, pero no suma al total ni sale en la comanda. */
+export interface LineVoidInfo {
+  voided: boolean;
+  voidedAt: string | null;
+  voidedBy: string | null;
+  voidReason: string | null;
+}
+
 export interface AccountRound {
   roundNumber: number;
   addedAt: string;
-  items: { productName: string; quantity: number; subtotal: number; excludedComplements: string[] }[];
-  promotions: {
+  items: ({
+    id: string;
+    productName: string;
+    quantity: number;
+    subtotal: number;
+    excludedComplements: string[];
+  } & LineVoidInfo)[];
+  promotions: ({
+    id: string;
     name: string;
     comboQuantity: number;
     subtotal: number;
     components: OrderPromotionComponentSnapshot[];
-  }[];
+  } & LineVoidInfo)[];
 }
 
 export interface TableAccountResponse {
@@ -378,6 +393,63 @@ export class TableAccountsService {
     return this.toAccountView(this.db, reopened, table.label);
   }
 
+  /**
+   * Anula una línea de una cuenta abierta: no se borra, queda marcada con quién
+   * y por qué, deja de sumar al total y sigue apareciendo en la cuenta. No
+   * imprime nada: se ve al revisar la cuenta.
+   */
+  async voidLine(
+    tableId: string,
+    kind: 'item' | 'promotion',
+    lineId: string,
+    reason: string,
+    staffUsername: string,
+  ): Promise<TableAccountResponse> {
+    const cleanReason = reason.trim();
+    if (cleanReason.length < 3) {
+      throw new ValidationError('El motivo de la anulación es obligatorio.');
+    }
+    return this.db.transaction().execute(async (trx) => {
+      const table = await this.requireTable(trx, tableId);
+      const order = await this.lockLiveOrder(trx, tableId);
+      this.assertOpen(order);
+
+      const values = { voided_at: new Date(), voided_by: staffUsername, void_reason: cleanReason };
+      const voided =
+        kind === 'item'
+          ? await trx
+              .updateTable('order_items')
+              .set(values)
+              .where('id', '=', lineId)
+              .where('order_id', '=', order.id)
+              .where('voided_at', 'is', null)
+              .returning('id')
+              .executeTakeFirst()
+          : await trx
+              .updateTable('order_promotions')
+              .set(values)
+              .where('id', '=', lineId)
+              .where('order_id', '=', order.id)
+              .where('voided_at', 'is', null)
+              .returning('id')
+              .executeTakeFirst();
+      if (!voided) {
+        throw new DomainException(
+          'line_not_voidable',
+          HttpStatus.NOT_FOUND,
+          'La línea no existe en esta cuenta o ya estaba anulada.',
+          { lineId },
+        );
+      }
+
+      const updated = await this.recalculateTotals(trx, order.id, {
+        status_updated_by: staffUsername,
+        bill_requested_at: order.bill_requested_at,
+      });
+      return this.toAccountView(trx, updated, table.label);
+    });
+  }
+
   /** Solo cuentas sin consumo: una cuenta con plata se cobra (o, más adelante, se anulan sus líneas). */
   async cancel(tableId: string, staffUsername: string): Promise<void> {
     await this.db.transaction().execute(async (trx) => {
@@ -539,7 +611,31 @@ export class TableAccountsService {
     },
     tableLabel: string,
   ): Promise<TableAccountResponse> {
-    const { items, promotions } = await loadOrderLines(db, order.id);
+    // A diferencia de loadOrderLines, acá entran las anuladas: se muestran marcadas.
+    const items = await db
+      .selectFrom('order_items')
+      .selectAll()
+      .where('order_id', '=', order.id)
+      .orderBy('round_number')
+      .orderBy('created_at')
+      .execute();
+    const promotions = await db
+      .selectFrom('order_promotions')
+      .selectAll()
+      .where('order_id', '=', order.id)
+      .orderBy('round_number')
+      .execute();
+
+    const voidInfo = (line: {
+      voided_at: Date | string | null;
+      voided_by: string | null;
+      void_reason: string | null;
+    }): LineVoidInfo => ({
+      voided: line.voided_at !== null,
+      voidedAt: line.voided_at ? new Date(line.voided_at).toISOString() : null,
+      voidedBy: line.voided_by,
+      voidReason: line.void_reason,
+    });
 
     const rounds = new Map<number, AccountRound>();
     const roundOf = (roundNumber: number, addedAt: Date | string): AccountRound => {
@@ -552,18 +648,22 @@ export class TableAccountsService {
     };
     for (const item of items) {
       roundOf(item.round_number, item.added_at).items.push({
+        id: item.id,
         productName: item.product_name_snapshot,
         quantity: item.quantity,
         subtotal: Number(item.subtotal),
         excludedComplements: item.excluded_complements,
+        ...voidInfo(item),
       });
     }
     for (const promotion of promotions) {
       roundOf(promotion.round_number, promotion.added_at).promotions.push({
+        id: promotion.id,
         name: promotion.promotion_name_snapshot,
         comboQuantity: promotion.combo_quantity,
         subtotal: Number(promotion.subtotal),
         components: promotion.components_snapshot,
+        ...voidInfo(promotion),
       });
     }
 

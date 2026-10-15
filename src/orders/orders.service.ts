@@ -29,6 +29,7 @@ import {
   checkoutGateAt,
   lateRequestExpiryFor,
 } from '../common/time/service-window';
+import { checkSchedule, WeeklySchedule } from '../common/time/weekly-schedule';
 import { OperationalSettingsService } from '../operational-settings/operational-settings.service';
 import { PaymentOptionsService } from '../payment-options/payment-options.service';
 import { assertMinimumOrder, minimumsFrom } from '../operational-settings/order-minimum.rules';
@@ -180,6 +181,33 @@ const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   cancelled: [],
 };
 
+const EVERY_WEEKDAY = [0, 1, 2, 3, 4, 5, 6];
+
+function scheduleFrom(settings: {
+  open_weekdays?: number[] | null;
+  business_opens_hour: number;
+  delivery_last_order_minute?: number | null;
+  pickup_last_order_minute?: number | null;
+}): WeeklySchedule {
+  return {
+    openWeekdays: settings.open_weekdays ?? EVERY_WEEKDAY,
+    opensAtMinute: settings.business_opens_hour * 60,
+    deliveryLastOrderMinute: settings.delivery_last_order_minute ?? null,
+    pickupLastOrderMinute: settings.pickup_last_order_minute ?? null,
+  };
+}
+
+function scheduleMessage(
+  reason: 'closed_day' | 'before_opening' | 'after_last_order',
+  serviceType: OrderDeliveryType,
+): string {
+  if (reason === 'closed_day') return 'Hoy el local no atiende.';
+  if (reason === 'before_opening') return 'Todavía no abrimos.';
+  return serviceType === 'delivery'
+    ? 'Ya no tomamos pedidos de delivery por hoy.'
+    : 'Ya no tomamos pedidos para recoger por hoy.';
+}
+
 /** Delivery se despacha; recojo y mesa se entregan. */
 function handoverStatusFor(deliveryType: OrderDeliveryType): OrderStatus {
   return deliveryType === 'delivery' ? 'out_for_delivery' : 'delivered';
@@ -310,6 +338,19 @@ export class OrdersService {
       dto.channel === 'external' ||
       (dto.bypassHoursGate === true && dto.channel === 'pos') ||
       (dto.channel === 'web' && (await this.isAiTestCustomer(dto.customerId)));
+    // Días de atención y hora límite por servicio: lo que entra por WhatsApp o
+    // la web se rechaza fuera de horario (el cajero decide lo suyo en el POS).
+    if (!bypassAllowed && dto.channel !== 'pos') {
+      const schedule = checkSchedule(now, scheduleFrom(settings), dto.deliveryType);
+      if (!schedule.open) {
+        throw new DomainException(
+          'closed',
+          HttpStatus.CONFLICT,
+          scheduleMessage(schedule.reason, dto.deliveryType),
+          { reason: schedule.reason, serviceType: dto.deliveryType },
+        );
+      }
+    }
     // Sin caja obligatoria, "caja cerrada" no es un motivo para encolar.
     const registerOk =
       settings.require_open_register === false || (await this.cashRegister.isOpen());

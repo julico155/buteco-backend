@@ -3,6 +3,7 @@ import { Kysely } from 'kysely';
 import { KYSELY } from '../database/database.module';
 import { Database } from '../database/types';
 import { ValidationError } from '../common/exceptions/domain-exception';
+import { formatClockTime, parseClockTime } from '../common/time/weekly-schedule';
 import { UpdateOperationalSettingsDto } from './dto/update-operational-settings.dto';
 import {
   assertAvailabilityConsistent,
@@ -39,8 +40,13 @@ export interface OperationalSettingsResponse {
   outOfHoursPolicy: 'queue' | 'reject' | 'accept';
   /** Tope del monto que el staff puede fijar en una cotización de delivery manual. */
   manualQuoteMaxAmount: number;
-  /** El efectivo de pickup/mesa exige pago confirmado antes de `preparing`. */
+  /** El efectivo de pickup/mesa exige pago confirmado antes de entregarse. */
   cashPrepaymentRequired: boolean;
+  /** Días que abre el local: domingo = 0 … sábado = 6. */
+  openWeekdays: number[];
+  /** Hora límite (HH:MM) para aceptar pedidos; null = sin tope propio. */
+  deliveryLastOrderTime: string | null;
+  pickupLastOrderTime: string | null;
 }
 
 /**
@@ -149,6 +155,19 @@ export class OperationalSettingsService {
         ...(dto.cashPrepaymentRequired !== undefined
           ? { cash_prepayment_required: dto.cashPrepaymentRequired }
           : {}),
+        ...(dto.openWeekdays !== undefined ? { open_weekdays: dto.openWeekdays } : {}),
+        ...(dto.deliveryLastOrderTime !== undefined
+          ? {
+              delivery_last_order_minute:
+                dto.deliveryLastOrderTime === null ? null : parseClockTime(dto.deliveryLastOrderTime),
+            }
+          : {}),
+        ...(dto.pickupLastOrderTime !== undefined
+          ? {
+              pickup_last_order_minute:
+                dto.pickupLastOrderTime === null ? null : parseClockTime(dto.pickupLastOrderTime),
+            }
+          : {}),
         updated_at: new Date(),
       })
       .where('id', '=', true)
@@ -235,6 +254,9 @@ function toResponse(row: {
   out_of_hours_policy: 'queue' | 'reject' | 'accept';
   manual_quote_max_amount: string;
   cash_prepayment_required: boolean;
+  open_weekdays: number[];
+  delivery_last_order_minute: number | null;
+  pickup_last_order_minute: number | null;
 }): OperationalSettingsResponse {
   return {
     rainSurchargeEnabled: row.rain_surcharge_enabled,
@@ -262,5 +284,10 @@ function toResponse(row: {
     outOfHoursPolicy: row.out_of_hours_policy,
     manualQuoteMaxAmount: Number(row.manual_quote_max_amount),
     cashPrepaymentRequired: row.cash_prepayment_required,
+    openWeekdays: row.open_weekdays,
+    deliveryLastOrderTime:
+      row.delivery_last_order_minute === null ? null : formatClockTime(row.delivery_last_order_minute),
+    pickupLastOrderTime:
+      row.pickup_last_order_minute === null ? null : formatClockTime(row.pickup_last_order_minute),
   };
 }

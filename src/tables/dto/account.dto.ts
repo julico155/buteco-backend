@@ -8,6 +8,7 @@ import {
   IsString,
   MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { OrderItemInputDto } from '../../orders/dto/order-item-input.dto';
@@ -56,4 +57,12 @@ export class CloseAccountDto {
   @IsNumber()
   @Min(0)
   qrAmount?: number;
+}
+
+export class VoidLineDto {
+  /** Obligatorio: queda registrado junto a quién anuló. */
+  @IsString()
+  @MinLength(3)
+  @MaxLength(200)
+  reason!: string;
 }

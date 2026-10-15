@@ -442,6 +442,11 @@ export interface OperationalSettingsTable {
   manual_quote_max_amount: Generated<string>;
   /** true: el efectivo de pickup/mesa exige estar pagado antes de `preparing` (el de delivery lo cobra el repartidor). */
   cash_prepayment_required: Generated<boolean>;
+  /** Días en que el local abre: domingo = 0 … sábado = 6. */
+  open_weekdays: Generated<number[]>;
+  /** Último minuto del día (0–1439) en que se acepta un pedido de delivery / recojo; null = sin tope propio. */
+  delivery_last_order_minute: number | null;
+  pickup_last_order_minute: number | null;
   updated_at: Timestamp;
 }
 
