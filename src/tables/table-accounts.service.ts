@@ -63,6 +63,11 @@ export interface TableAccountResponse {
   status: OrderStatus;
   paymentStatus: string;
   paymentMethod: string;
+  /** Consumo de la cuenta, antes de descontar el adelanto de la reserva. */
+  grossAmount: number;
+  /** Adelanto de reserva que se descuenta (0 si la mesa no venía de una reserva). */
+  depositCreditAmount: number;
+  /** Lo que se cobra: consumo menos adelanto. Es el monto que ven QR, efectivo y split. */
   totalAmount: number;
   openedAt: string;
   billRequestedAt: string | null;
@@ -77,6 +82,16 @@ interface LockedTable {
   id: string;
   label: string;
   is_active: boolean;
+}
+
+/** Consumo bruto: lo no anulado, antes del adelanto. */
+function grossOf(
+  items: { subtotal: string; voided_at: Date | string | null }[],
+  promotions: { subtotal: string; voided_at: Date | string | null }[],
+): number {
+  const sum = (lines: { subtotal: string; voided_at: Date | string | null }[]) =>
+    lines.filter((l) => l.voided_at === null).reduce((acc, l) => acc + Number(l.subtotal), 0);
+  return Math.round((sum(items) + sum(promotions)) * 100) / 100;
 }
 
 @Injectable()
@@ -107,45 +122,69 @@ export class TableAccountsService {
   async open(tableId: string, dto: OpenAccountDto, staffUsername: string): Promise<TableAccountResponse> {
     try {
       return await this.db.transaction().execute(async (trx) => {
-        const table = await this.requireTable(trx, tableId, true);
-        if (!table.is_active) {
-          throw new DomainException(
-            'table_out_of_service',
-            HttpStatus.CONFLICT,
-            'La mesa está fuera de servicio.',
-            { tableId },
-          );
-        }
-        if (await this.findLiveOrder(trx, tableId)) throw this.alreadyOpen(tableId);
-
-        const { orderNumber, numberingSessionId } = await this.orders.assignOrderNumber(trx);
-        const customerName = dto.customerName?.trim() || table.label;
-        const row = await trx
-          .insertInto('orders')
-          .values({
-            order_number: orderNumber,
-            numbering_session_id: numberingSessionId,
-            customer_id: null,
-            channel: ACCOUNT_CHANNEL,
-            customer_name: customerName.slice(0, 100),
-            delivery_type: 'dine_in',
-            payment_method: PLACEHOLDER_PAYMENT_METHOD,
-            notes: dto.notes?.trim() || null,
-            status: 'open',
-            subtotal_amount: '0.00',
-            total_amount: '0.00',
-            table_id: tableId,
-            status_updated_by: staffUsername,
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow();
-        return this.toAccountView(trx, row, table.label);
+        const opened = await this.openInTransaction(trx, tableId, {
+          customerName: dto.customerName,
+          notes: dto.notes,
+          staffUsername,
+        });
+        return this.toAccountView(trx, opened.order, opened.tableLabel);
       });
     } catch (error) {
       // Dos aperturas simultáneas: el índice único parcial deja pasar solo una.
       if (isUniqueViolation(error)) throw this.alreadyOpen(tableId);
       throw error;
     }
+  }
+
+  /**
+   * Abre la cuenta dentro de una transacción ya iniciada. Lo usa tanto el
+   * cajero (`open`) como el check-in de una reserva, que además trae el
+   * adelanto como crédito: el total de la cuenta lo descuenta desde el inicio.
+   */
+  async openInTransaction(
+    trx: Transaction<Database>,
+    tableId: string,
+    opts: {
+      customerName?: string;
+      notes?: string;
+      staffUsername: string;
+      depositCreditAmount?: number;
+    },
+  ) {
+    const table = await this.requireTable(trx, tableId, true);
+    if (!table.is_active) {
+      throw new DomainException(
+        'table_out_of_service',
+        HttpStatus.CONFLICT,
+        'La mesa está fuera de servicio.',
+        { tableId },
+      );
+    }
+    if (await this.findLiveOrder(trx, tableId)) throw this.alreadyOpen(tableId);
+
+    const { orderNumber, numberingSessionId } = await this.orders.assignOrderNumber(trx);
+    const customerName = opts.customerName?.trim() || table.label;
+    const order = await trx
+      .insertInto('orders')
+      .values({
+        order_number: orderNumber,
+        numbering_session_id: numberingSessionId,
+        customer_id: null,
+        channel: ACCOUNT_CHANNEL,
+        customer_name: customerName.slice(0, 100),
+        delivery_type: 'dine_in',
+        payment_method: PLACEHOLDER_PAYMENT_METHOD,
+        notes: opts.notes?.trim() || null,
+        status: 'open',
+        subtotal_amount: '0.00',
+        total_amount: '0.00',
+        deposit_credit_amount: (opts.depositCreditAmount ?? 0).toFixed(2),
+        table_id: tableId,
+        status_updated_by: opts.staffUsername,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    return { order, tableLabel: table.label };
   }
 
   /**
@@ -251,7 +290,7 @@ export class TableAccountsService {
       const table = await this.requireTable(trx, tableId);
       const order = await this.lockLiveOrder(trx, tableId);
       this.assertOpen(order);
-      if (Number(order.total_amount) <= 0) {
+      if (Number(order.total_amount) + Number(order.deposit_credit_amount) <= 0) {
         throw new DomainException(
           'account_empty',
           HttpStatus.CONFLICT,
@@ -283,27 +322,34 @@ export class TableAccountsService {
     }
     this.assertOpen(live);
 
-    if (Number(live.total_amount) <= 0) {
+    const gross = Number(live.total_amount) + Number(live.deposit_credit_amount);
+    if (gross <= 0) {
       throw new DomainException('account_empty', HttpStatus.CONFLICT, 'La cuenta no tiene consumo todavía.');
     }
-    if (dto.paymentMethod === 'split') {
+    // El adelanto de la reserva cubrió todo el consumo: no hay nada que cobrar,
+    // sin importar la forma de pago elegida.
+    const nothingToCollect = Number(live.total_amount) <= 0;
+    const paymentMethod: CloseAccountDto['paymentMethod'] = nothingToCollect ? 'cash' : dto.paymentMethod;
+    if (paymentMethod === 'split') {
       if (dto.cashAmount === undefined || dto.qrAmount === undefined) {
         throw new ValidationError('El cobro dividido necesita cashAmount y qrAmount.');
       }
     }
     // Falla antes de tocar nada si la forma de pago está apagada.
-    await this.paymentOptions.resolve({
-      serviceType: 'dine_in',
-      paymentMethod: dto.paymentMethod,
-      channel: dto.paymentMethod === 'split' ? undefined : ACCOUNT_CHANNEL,
-    });
+    if (!nothingToCollect) {
+      await this.paymentOptions.resolve({
+        serviceType: 'dine_in',
+        paymentMethod,
+        channel: paymentMethod === 'split' ? undefined : ACCOUNT_CHANNEL,
+      });
+    }
 
     const closed = await this.db
       .updateTable('orders')
       .set({
         status: 'confirmed',
         confirmed_at: new Date(),
-        payment_method: dto.paymentMethod === 'split' ? PLACEHOLDER_PAYMENT_METHOD : dto.paymentMethod,
+        payment_method: paymentMethod === 'split' ? PLACEHOLDER_PAYMENT_METHOD : paymentMethod,
         status_updated_by: staffUsername,
         updated_at: new Date(),
       })
@@ -319,20 +365,22 @@ export class TableAccountsService {
       );
     }
 
-    if (dto.paymentMethod === 'cash') {
-      await this.orders.confirmCash(live.id);
+    if (paymentMethod === 'cash') {
+      try {
+        await this.orders.confirmCash(live.id);
+      } catch (error) {
+        // Caja cerrada u otro fallo: la cuenta vuelve a quedar abierta, no a medio cerrar.
+        await this.revertToOpen(live.id);
+        throw error;
+      }
       return this.orders.updateStatus(live.id, 'delivered', staffUsername);
     }
-    if (dto.paymentMethod === 'split') {
+    if (paymentMethod === 'split') {
       try {
         return await this.orders.setSplitPayment(live.id, dto.cashAmount!, dto.qrAmount!);
       } catch (error) {
         // Montos que no suman: la cuenta vuelve a quedar abierta para corregir.
-        await this.db
-          .updateTable('orders')
-          .set({ status: 'open', confirmed_at: null, updated_at: new Date() })
-          .where('id', '=', live.id)
-          .execute();
+        await this.revertToOpen(live.id);
         throw error;
       }
     }
@@ -474,6 +522,17 @@ export class TableAccountsService {
 
   // ---- internos ----
 
+  /** Deshace el cierre de una cuenta cuyo cobro no pudo arrancar. */
+  private async revertToOpen(orderId: string): Promise<void> {
+    await this.db
+      .updateTable('orders')
+      .set({ status: 'open', confirmed_at: null, updated_at: new Date() })
+      .where('id', '=', orderId)
+      .where('status', '=', 'confirmed')
+      .where('payment_status', '=', 'unpaid')
+      .execute();
+  }
+
   private alreadyOpen(tableId: string): DomainException {
     return new DomainException(
       'table_already_open',
@@ -557,12 +616,15 @@ export class TableAccountsService {
     orderId: string,
     extra: { status_updated_by: string; bill_requested_at: Date | null },
   ) {
+    // total = consumo - adelanto (nunca negativo). subtotal y total guardan el
+    // neto para que QR, split, efectivo y reportes sigan usando los mismos campos.
     const totals = await sql<{ total: string }>`
-      select (
+      select greatest(0,
         coalesce((select sum(subtotal) from order_items
                   where order_id = ${orderId} and voided_at is null), 0) +
         coalesce((select sum(subtotal) from order_promotions
                   where order_id = ${orderId} and voided_at is null), 0)
+        - (select deposit_credit_amount from orders where id = ${orderId})
       )::numeric(10,2) as total
     `.execute(trx);
     const total = totals.rows[0].total;
@@ -605,6 +667,7 @@ export class TableAccountsService {
       payment_status: string;
       payment_method: string;
       total_amount: string;
+      deposit_credit_amount: string;
       created_at: Date | string;
       bill_requested_at: Date | string | null;
       notes: string | null;
@@ -677,6 +740,8 @@ export class TableAccountsService {
       status: order.status,
       paymentStatus: order.payment_status,
       paymentMethod: order.payment_method,
+      grossAmount: grossOf(items, promotions),
+      depositCreditAmount: Number(order.deposit_credit_amount),
       totalAmount: Number(order.total_amount),
       openedAt: new Date(order.created_at).toISOString(),
       billRequestedAt: order.bill_requested_at ? new Date(order.bill_requested_at).toISOString() : null,

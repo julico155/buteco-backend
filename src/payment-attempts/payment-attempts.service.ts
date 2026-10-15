@@ -226,7 +226,14 @@ export class PaymentAttemptsService {
   }> {
     const current = await trx
       .selectFrom('orders')
-      .select(['register_session_id', 'payment_method', 'split_cash_confirmed_at', 'delivery_type', 'order_number'])
+      .select([
+        'register_session_id',
+        'payment_method',
+        'split_cash_confirmed_at',
+        'delivery_type',
+        'order_number',
+        'reservation_deposit',
+      ])
       .where('id', '=', orderId)
       .executeTakeFirstOrThrow();
 
@@ -255,8 +262,13 @@ export class PaymentAttemptsService {
 
     let registerSessionId: string | null | undefined;
     if (decision === 'accepted') {
+      // El adelanto de una reserva entra por la landing a cualquier hora: no
+      // exige caja abierta (si la hay, se vincula; si no, queda sin caja).
       registerSessionId =
-        current.register_session_id ?? (await this.cashRegister.sessionIdForPayment(trx));
+        current.register_session_id ??
+        (current.reservation_deposit
+          ? await this.cashRegister.openSessionIdOrNull(trx)
+          : await this.cashRegister.sessionIdForPayment(trx));
     }
 
     // CAS contra un reemplazo (FASE 3) que ganó la carrera: si el pedido ya

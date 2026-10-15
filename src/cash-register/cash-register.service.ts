@@ -240,6 +240,20 @@ export class CashRegisterService {
     return this.assertOpenSessionId(db); // lanza cash_register_closed
   }
 
+  /**
+   * Caja abierta si la hay, null si no. Para cobros que entran con el local
+   * cerrado (el adelanto de una reserva que se paga desde la landing): la plata
+   * es real, pero exigir caja abierta la dejaría trabada como "sin aplicar".
+   */
+  async openSessionIdOrNull(db: Kysely<Database> | Transaction<Database>): Promise<string | null> {
+    const open = await db
+      .selectFrom('cash_register_sessions')
+      .select('id')
+      .where('status', '=', 'open')
+      .executeTakeFirst();
+    return open?.id ?? null;
+  }
+
   async assertOpenSessionId(db: Kysely<Database> | Transaction<Database>): Promise<string> {
     const open = await db
       .selectFrom('cash_register_sessions')

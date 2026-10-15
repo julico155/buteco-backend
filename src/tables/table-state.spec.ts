@@ -9,6 +9,20 @@ describe('deriveTableState', () => {
     expect(deriveTableState({ isActive: false, account: null })).toBe('out_of_service');
   });
 
+  it('con una reserva vigente y nadie sentado está reservada', () => {
+    expect(deriveTableState({ isActive: true, account: null, hasReservation: true })).toBe('reserved');
+  });
+
+  it('una cuenta abierta gana sobre la reserva', () => {
+    expect(
+      deriveTableState({
+        isActive: true,
+        account: { status: 'open', billRequestedAt: null },
+        hasReservation: true,
+      }),
+    ).toBe('occupied');
+  });
+
   it('con cuenta abierta está ocupada', () => {
     expect(
       deriveTableState({ isActive: true, account: { status: 'open', billRequestedAt: null } }),

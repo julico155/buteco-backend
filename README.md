@@ -10,7 +10,8 @@
 > Horario: martes a domingo, abre 12:00; lo que entra por WhatsApp o la web se
 > rechaza (`409 closed`) fuera de día/hora: delivery hasta 22:50 y recojo hasta
 > 22:30 (configurable en `/operational-settings`). El POS no se bloquea. Mesas y
-> cuentas abiertas: [docs/mesas.md](docs/mesas.md).
+> cuentas abiertas: [docs/mesas.md](docs/mesas.md). Reservas con adelanto por QR:
+> [docs/reservas.md](docs/reservas.md).
 > Varios documentos de `docs/` todavía describen la plantilla original.
 
 NestJS + Postgres. Base reutilizable: cada restaurante despliega su propia

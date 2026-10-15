@@ -138,6 +138,10 @@ export interface OrdersTable {
   table_id: string | null;
   /** "Pidió la cuenta": el plano pinta la mesa como por cobrar. Se borra al agregar una ronda. */
   bill_requested_at: Timestamp | null;
+  /** Adelanto de reserva que descuenta esta cuenta. subtotal/total ya vienen netos de este crédito. */
+  deposit_credit_amount: Generated<string>;
+  /** Pedido que representa el adelanto de una reserva (no es una venta de comida). */
+  reservation_deposit: Generated<boolean>;
   created_at: Timestamp;
   updated_at: Timestamp;
 }
@@ -369,6 +373,62 @@ export interface OrderPromotionsTable {
   void_reason: string | null;
 }
 
+export type ReservationStatus =
+  | 'pending_payment'
+  | 'confirmed'
+  | 'seated'
+  | 'cancelled'
+  | 'no_show'
+  | 'expired';
+
+export type ReservationDepositStatus =
+  | 'none'
+  | 'pending'
+  | 'paid'
+  | 'refund_due'
+  | 'refunded'
+  | 'forfeited'
+  | 'applied';
+
+export interface ReservationSettingsTable {
+  id: true;
+  enabled: Generated<boolean>;
+  deposit_amount: Generated<string>;
+  slot_minutes: Generated<number>;
+  block_minutes: Generated<number>;
+  hold_minutes: Generated<number>;
+  payment_ttl_minutes: Generated<number>;
+  cancel_refund_hours: Generated<number>;
+  min_lead_minutes: Generated<number>;
+  max_days_ahead: Generated<number>;
+  max_occupancy_percent: Generated<number>;
+  last_slot_before_close_minutes: Generated<number>;
+  updated_at: Timestamp;
+}
+
+export interface ReservationsTable {
+  id: Generated<string>;
+  reservation_number: string;
+  table_id: string;
+  party_size: number;
+  customer_name: string;
+  customer_phone: string;
+  notes: string | null;
+  starts_at: Timestamp;
+  blocks_until: Timestamp;
+  expires_at: Timestamp;
+  status: Generated<ReservationStatus>;
+  deposit_amount: string;
+  deposit_status: Generated<ReservationDepositStatus>;
+  deposit_order_id: string | null;
+  account_order_id: string | null;
+  cancelled_at: Timestamp | null;
+  cancel_reason: string | null;
+  created_by: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
 export type TableShape = 'square' | 'round' | 'rectangle';
 
 export interface FloorsTable {
@@ -505,4 +565,6 @@ export interface Database {
   notification_jobs: NotificationJobsTable;
   floors: FloorsTable;
   tables: TablesTable;
+  reservation_settings: ReservationSettingsTable;
+  reservations: ReservationsTable;
 }

@@ -256,7 +256,8 @@ export class OrdersService {
     limit?: number;
     offset?: number;
   }): Promise<OrderResponse[]> {
-    let query = this.db.selectFrom('orders').selectAll();
+    // El adelanto de una reserva es un pedido de servicio, no algo que se cocine ni se entregue.
+    let query = this.db.selectFrom('orders').selectAll().where('reservation_deposit', '=', false);
     if (filter.channel) query = query.where('channel', '=', filter.channel);
     if (filter.customerId) query = query.where('customer_id', '=', filter.customerId);
     if (filter.status) query = query.where('status', '=', filter.status);

@@ -24,6 +24,16 @@ export interface TableAccountSummary {
   billRequestedAt: string | null;
 }
 
+/** Reserva vigente sobre la mesa (la que la deja "reservada" en el plano). */
+export interface TableReservationSummary {
+  reservationId: string;
+  reservationNumber: string;
+  customerName: string;
+  partySize: number;
+  startsAt: string;
+  status: string;
+}
+
 export interface TableResponse {
   id: string;
   floorId: string;
@@ -39,6 +49,7 @@ export interface TableResponse {
   /** Deducido de la cuenta viva; nunca se guarda. */
   state: TableState;
   account: TableAccountSummary | null;
+  reservation: TableReservationSummary | null;
 }
 
 interface TableRow {
@@ -54,6 +65,9 @@ interface TableRow {
   shape: TableShape;
   is_active: boolean;
 }
+
+/** La mesa se pinta como reservada desde estos minutos antes de la hora de la reserva. */
+const RESERVED_SHOWN_BEFORE_MINUTES = 30;
 
 export function isUniqueViolation(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === '23505';
@@ -285,8 +299,33 @@ export class TablesService {
     const countByOrder = new Map(counts.map((c) => [c.order_id, Number(c.quantity)]));
     const accountByTable = new Map(accounts.map((a) => [a.table_id as string, a]));
 
+    // Reserva "vigente": empieza dentro de los próximos minutos o sigue en su plazo de espera.
+    const now = new Date();
+    const reservations = await this.db
+      .selectFrom('reservations')
+      .select([
+        'id',
+        'table_id',
+        'reservation_number',
+        'customer_name',
+        'party_size',
+        'starts_at',
+        'status',
+      ])
+      .where('table_id', 'in', tables.map((t) => t.id))
+      .where('status', 'in', ['pending_payment', 'confirmed'])
+      .where('starts_at', '<=', new Date(now.getTime() + RESERVED_SHOWN_BEFORE_MINUTES * 60_000))
+      .where('expires_at', '>=', now)
+      .orderBy('starts_at')
+      .execute();
+    const reservationByTable = new Map<string, (typeof reservations)[number]>();
+    for (const r of reservations) {
+      if (!reservationByTable.has(r.table_id)) reservationByTable.set(r.table_id, r);
+    }
+
     return tables.map((table) => {
       const account = accountByTable.get(table.id) ?? null;
+      const reservation = reservationByTable.get(table.id) ?? null;
       return {
         id: table.id,
         floorId: table.floor_id,
@@ -304,7 +343,18 @@ export class TablesService {
           account: account
             ? { status: account.status, billRequestedAt: account.bill_requested_at }
             : null,
+          hasReservation: reservation !== null,
         }),
+        reservation: reservation
+          ? {
+              reservationId: reservation.id,
+              reservationNumber: reservation.reservation_number,
+              customerName: reservation.customer_name,
+              partySize: reservation.party_size,
+              startsAt: new Date(reservation.starts_at).toISOString(),
+              status: reservation.status,
+            }
+          : null,
         account: account
           ? {
               orderId: account.id,

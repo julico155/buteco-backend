@@ -2,9 +2,9 @@ import { OrderStatus } from '../database/types';
 
 /**
  * Estado de una mesa en el plano. No se guarda: se deduce de su cuenta viva,
- * así nunca queda desincronizado. `reserved` entra con las reservas.
+ * así nunca queda desincronizado.
  */
-export type TableState = 'free' | 'occupied' | 'bill_requested' | 'out_of_service';
+export type TableState = 'free' | 'reserved' | 'occupied' | 'bill_requested' | 'out_of_service';
 
 export interface LiveAccountRef {
   status: OrderStatus;
@@ -14,8 +14,10 @@ export interface LiveAccountRef {
 export function deriveTableState(params: {
   isActive: boolean;
   account: LiveAccountRef | null;
+  /** Hay una reserva vigente (por llegar o dentro de su plazo de espera) y nadie sentado. */
+  hasReservation?: boolean;
 }): TableState {
-  const { isActive, account } = params;
+  const { isActive, account, hasReservation = false } = params;
   // Una mesa con cuenta viva no se puede desactivar, pero por las dudas la
   // cuenta manda: nunca esconder plata pendiente detrás de "fuera de servicio".
   if (account) {
@@ -24,5 +26,6 @@ export function deriveTableState(params: {
       ? 'bill_requested'
       : 'occupied';
   }
-  return isActive ? 'free' : 'out_of_service';
+  if (!isActive) return 'out_of_service';
+  return hasReservation ? 'reserved' : 'free';
 }
