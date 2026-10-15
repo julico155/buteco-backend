@@ -41,6 +41,7 @@ const PAYMENT_STATUSES: readonly OrderPaymentStatus[] = ['unpaid', 'pending_revi
 const ORDER_STATUSES: readonly OrderStatus[] = [
   'draft',
   'awaiting_location',
+  'open',
   'confirmed',
   'preparing',
   'ready',

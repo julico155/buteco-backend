@@ -74,6 +74,8 @@ export type OrderPaymentStatus = 'unpaid' | 'pending_review' | 'paid' | 'rejecte
 export type OrderStatus =
   | 'draft'
   | 'awaiting_location'
+  /** Cuenta de mesa abierta, todavía sin cobrar (se le agregan rondas). */
+  | 'open'
   | 'confirmed'
   | 'preparing'
   | 'ready'
@@ -132,6 +134,10 @@ export interface OrdersTable {
   replaces_order_id: string | null;
   /** Inverso de replaces_order_id — null hasta que alguien lo reemplaza; un pedido solo se reemplaza una vez (índice único parcial). */
   replaced_by_order_id: string | null;
+  /** Mesa de la cuenta (solo dine_in abierto desde una mesa). */
+  table_id: string | null;
+  /** "Pidió la cuenta": el plano pinta la mesa como por cobrar. Se borra al agregar una ronda. */
+  bill_requested_at: Timestamp | null;
   created_at: Timestamp;
   updated_at: Timestamp;
 }
@@ -148,6 +154,13 @@ export interface OrderItemsTable {
   /** Snapshot de nombres de complementos excluidos en esta línea (ej. ["cebolla"]) — nunca un id, ver migración. */
   excluded_complements: string[];
   created_at: Timestamp;
+  /** Ronda de la cuenta de mesa en la que se agregó la línea (1 para pedidos normales). */
+  round_number: Generated<number>;
+  added_at: Timestamp;
+  /** Anulada: se conserva con quién y por qué, pero no cuenta en total ni comanda. */
+  voided_at: Timestamp | null;
+  voided_by: string | null;
+  void_reason: string | null;
 }
 
 export interface ProductComplementsTable {
@@ -349,6 +362,39 @@ export interface OrderPromotionsTable {
   combo_quantity: number;
   subtotal: string;
   components_snapshot: JSONColumnType<OrderPromotionComponentSnapshot[]>;
+  round_number: Generated<number>;
+  added_at: Timestamp;
+  voided_at: Timestamp | null;
+  voided_by: string | null;
+  void_reason: string | null;
+}
+
+export type TableShape = 'square' | 'round' | 'rectangle';
+
+export interface FloorsTable {
+  id: Generated<string>;
+  name: string;
+  sort_order: Generated<number>;
+  is_active: Generated<boolean>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface TablesTable {
+  id: Generated<string>;
+  floor_id: string;
+  label: string;
+  seats: Generated<number>;
+  /** numeric(8,2) llega como string del driver pg. */
+  x: Generated<string>;
+  y: Generated<string>;
+  width: Generated<string>;
+  height: Generated<string>;
+  rotation: Generated<string>;
+  shape: Generated<TableShape>;
+  is_active: Generated<boolean>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
 }
 
 /**
@@ -452,4 +498,6 @@ export interface Database {
   order_day_counters: OrderDayCountersTable;
   dashboard_users: DashboardUsersTable;
   notification_jobs: NotificationJobsTable;
+  floors: FloorsTable;
+  tables: TablesTable;
 }

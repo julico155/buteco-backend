@@ -42,12 +42,14 @@ function createService(order: FakeOrder, cashPrepaymentRequired = false) {
     executeTakeFirst: jest.fn().mockImplementation(() => Promise.resolve({ ...order, ...written })),
   });
 
-  const items = { selectAll: jest.fn(), where: jest.fn(), execute: jest.fn().mockResolvedValue([]) };
+  const items = { selectAll: jest.fn(), where: jest.fn(), orderBy: jest.fn(), execute: jest.fn().mockResolvedValue([]) };
   items.selectAll.mockReturnValue(items);
   items.where.mockReturnValue(items);
-  const promotions = { selectAll: jest.fn(), where: jest.fn(), execute: jest.fn().mockResolvedValue([]) };
+  items.orderBy.mockReturnValue(items);
+  const promotions = { selectAll: jest.fn(), where: jest.fn(), orderBy: jest.fn(), execute: jest.fn().mockResolvedValue([]) };
   promotions.selectAll.mockReturnValue(promotions);
   promotions.where.mockReturnValue(promotions);
+  promotions.orderBy.mockReturnValue(promotions);
 
   const db = {
     selectFrom: jest.fn((table: string) => {

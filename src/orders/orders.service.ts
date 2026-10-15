@@ -58,6 +58,8 @@ export interface OrderItemResponse {
   quantity: number;
   subtotal: number;
   excludedComplements: string[];
+  /** Ronda de la cuenta de mesa en la que se agregó (1 en pedidos normales). */
+  roundNumber: number;
 }
 
 export interface OrderPromotionResponse {
@@ -67,6 +69,7 @@ export interface OrderPromotionResponse {
   comboQuantity: number;
   subtotal: number;
   componentsSnapshot: OrderPromotionComponentSnapshot[];
+  roundNumber: number;
 }
 
 export interface OrderResponse {
@@ -76,6 +79,10 @@ export interface OrderResponse {
   channel: string;
   customerName: string;
   deliveryType: string;
+  /** Mesa de la cuenta (solo dine_in abierto desde una mesa). */
+  tableId: string | null;
+  /** "Pidió la cuenta" (cuenta de mesa). */
+  billRequestedAt: string | null;
   paymentMethod: string;
   /** Solo delivery pagado por QR: 'food_only' (el repartidor cobra el envío) o 'food_and_delivery' (el QR cubre todo). */
   qrScope: QrScope | null;
@@ -163,6 +170,8 @@ export interface CheckoutCartInput {
 const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   draft: ['awaiting_location', 'confirmed', 'cancelled'],
   awaiting_location: ['confirmed', 'cancelled'],
+  // Cuenta de mesa abierta: se cierra por `TableAccountsService`, no por PATCH /status.
+  open: [],
   confirmed: ['out_for_delivery', 'delivered', 'cancelled'],
   preparing: ['out_for_delivery', 'delivered', 'cancelled'],
   ready: ['out_for_delivery', 'delivered', 'cancelled'],
@@ -288,6 +297,13 @@ export class OrdersService {
     // (el reparto necesita ubicación, cotización y repartidor de este sistema).
     if (dto.channel === 'external' && dto.deliveryType === 'delivery') {
       throw new ValidationError('El canal external no admite pedidos de delivery.');
+    }
+    // El consumo en el local siempre tiene mesa: se abre desde la mesa
+    // (POST /tables/:id/account), no con un pedido suelto.
+    if (dto.channel !== 'external' && dto.deliveryType === 'dine_in') {
+      throw new ValidationError(
+        'Los pedidos de mesa se abren desde la mesa: POST /tables/:id/account.',
+      );
     }
     const now = new Date();
     const bypassAllowed =
@@ -535,7 +551,7 @@ export class OrdersService {
    * otro pedido creándose al mismo tiempo — nunca dos pedidos de la misma
    * sesión con el mismo número.
    */
-  private async assignOrderNumber(
+  async assignOrderNumber(
     trx: Transaction<Database>,
   ): Promise<{ orderNumber: string; numberingSessionId: string | null }> {
     const settings = await trx
@@ -615,52 +631,17 @@ export class OrdersService {
   }
 
   /**
-   * Núcleo transaccional del checkout, reusado tanto por `create()` como por
-   * `LateOrderRequestsService.accept()` (que lo llama dentro de su propia
-   * transacción bloqueando la solicitud primero). Nunca se llama fuera de
-   * una transacción real: todos los locks (`for share`) solo tienen sentido
-   * ahí dentro.
+   * Valida un carrito contra el catálogo y lo precia con datos de la base
+   * (nada del cliente): disponibilidad, complementos, vigencia de promociones.
+   * Lo comparten el checkout normal y las rondas de una cuenta de mesa. Tiene
+   * que correr dentro de una transacción: los `for share` solo tienen sentido
+   * ahí. No chequea totales mínimos ni carrito vacío (eso es del que llama).
    */
-  async createOrderInTransaction(
+  async priceCart(
     trx: Transaction<Database>,
-    input: CheckoutCartInput,
-  ): Promise<OrderResponse> {
-    const items = input.items;
-    const promotions = input.promotions;
-
-    if (items.length > 20) {
-      throw new ValidationError('El carrito admite como máximo 20 productos sueltos.');
-    }
-    if (promotions.length > 10) {
-      throw new ValidationError('El carrito admite como máximo 10 promociones.');
-    }
-    if (items.length + promotions.length < 1) {
-      throw new ValidationError('El carrito está vacío.');
-    }
-
-    const customerName = input.customerName.trim();
-    if (!customerName || customerName.length > 100) {
-      throw new ValidationError('customerName debe tener entre 1 y 100 caracteres.');
-    }
-
-    const notes = input.notes?.trim() || null;
-    if (notes && notes.length > 500) {
-      throw new ValidationError('notes admite como máximo 500 caracteres.');
-    }
-
-    // Antes de bloquear nada: si la forma de pago está apagada, falla rápido.
-    const qrScope = input.skipAvailabilityChecks
-      ? (input.qrScope ?? null)
-      : await this.paymentOptions.resolve(
-          {
-            serviceType: input.deliveryType,
-            paymentMethod: input.paymentMethod,
-            qrScope: input.qrScope,
-            channel: input.channel,
-          },
-          trx,
-        );
-
+    items: CheckoutCartInput['items'],
+    promotions: CheckoutCartInput['promotions'],
+  ) {
     const productIds = items.map((i) => i.productId);
     // Dos líneas del mismo producto son válidas si tienen distinta selección
     // de complementos (ej. "sin cebolla" en una sola unidad) — lo que no
@@ -675,15 +656,6 @@ export class OrdersService {
     const promotionIds = promotions.map((p) => p.promotionId);
     if (new Set(promotionIds).size !== promotionIds.length) {
       throw new ValidationError('El carrito tiene promociones duplicadas.');
-    }
-
-    if (input.customerId) {
-      const customer = await trx
-        .selectFrom('customers')
-        .select('id')
-        .where('id', '=', input.customerId)
-        .executeTakeFirst();
-      if (!customer) throw new NotFoundDomainError('customer', input.customerId);
     }
 
     // El reloj de la base, no el del proceso: la vigencia de promociones se
@@ -861,6 +833,67 @@ export class OrdersService {
       });
       return { promo, quantity: p.quantity, subtotal: lineSubtotal, componentsSnapshot };
     });
+
+    return { itemLines, promotionLines, subtotal, now };
+  }
+
+  /**
+   * Núcleo transaccional del checkout, reusado tanto por `create()` como por
+   * `LateOrderRequestsService.accept()` (que lo llama dentro de su propia
+   * transacción bloqueando la solicitud primero). Nunca se llama fuera de
+   * una transacción real: todos los locks (`for share`) solo tienen sentido
+   * ahí dentro.
+   */
+  async createOrderInTransaction(
+    trx: Transaction<Database>,
+    input: CheckoutCartInput,
+  ): Promise<OrderResponse> {
+    const items = input.items;
+    const promotions = input.promotions;
+
+    if (items.length > 20) {
+      throw new ValidationError('El carrito admite como máximo 20 productos sueltos.');
+    }
+    if (promotions.length > 10) {
+      throw new ValidationError('El carrito admite como máximo 10 promociones.');
+    }
+    if (items.length + promotions.length < 1) {
+      throw new ValidationError('El carrito está vacío.');
+    }
+
+    const customerName = input.customerName.trim();
+    if (!customerName || customerName.length > 100) {
+      throw new ValidationError('customerName debe tener entre 1 y 100 caracteres.');
+    }
+
+    const notes = input.notes?.trim() || null;
+    if (notes && notes.length > 500) {
+      throw new ValidationError('notes admite como máximo 500 caracteres.');
+    }
+
+    // Antes de bloquear nada: si la forma de pago está apagada, falla rápido.
+    const qrScope = input.skipAvailabilityChecks
+      ? (input.qrScope ?? null)
+      : await this.paymentOptions.resolve(
+          {
+            serviceType: input.deliveryType,
+            paymentMethod: input.paymentMethod,
+            qrScope: input.qrScope,
+            channel: input.channel,
+          },
+          trx,
+        );
+
+    if (input.customerId) {
+      const customer = await trx
+        .selectFrom('customers')
+        .select('id')
+        .where('id', '=', input.customerId)
+        .executeTakeFirst();
+      if (!customer) throw new NotFoundDomainError('customer', input.customerId);
+    }
+
+    const { itemLines, promotionLines, subtotal, now } = await this.priceCart(trx, items, promotions);
 
     if (subtotal <= 0) {
       throw new ValidationError('El total del pedido debe ser positivo.');
@@ -1820,21 +1853,26 @@ function groupByOrderId<T extends { order_id: string }>(rows: T[]): Map<string, 
 }
 
 /** Transaction<Database> extiende Kysely<Database>, así que sirve dentro y fuera de una transacción. */
-async function loadOrderLines(db: Kysely<Database>, orderId: string) {
+export async function loadOrderLines(db: Kysely<Database>, orderId: string) {
   const items = await db
     .selectFrom('order_items')
     .selectAll()
     .where('order_id', '=', orderId)
+    .where('voided_at', 'is', null)
+    .orderBy('round_number')
+    .orderBy('created_at')
     .execute();
   const promotions = await db
     .selectFrom('order_promotions')
     .selectAll()
     .where('order_id', '=', orderId)
+    .where('voided_at', 'is', null)
+    .orderBy('round_number')
     .execute();
   return { items, promotions };
 }
 
-function toOrderResponse(
+export function toOrderResponse(
   order: {
     id: string;
     order_number: string;
@@ -1842,6 +1880,8 @@ function toOrderResponse(
     channel: string;
     customer_name: string;
     delivery_type: string;
+    table_id?: string | null;
+    bill_requested_at?: Date | string | null;
     payment_method: string;
     qr_scope?: QrScope | null;
     payment_status: string;
@@ -1872,8 +1912,10 @@ function toOrderResponse(
     quantity: number;
     subtotal: string;
     excluded_complements: string[];
+    round_number?: number;
   }[],
   promotions: {
+    round_number?: number;
     promotion_id: string | null;
     promotion_name_snapshot: string;
     promo_price_snapshot: string;
@@ -1889,6 +1931,8 @@ function toOrderResponse(
     channel: order.channel,
     customerName: order.customer_name,
     deliveryType: order.delivery_type,
+    tableId: order.table_id ?? null,
+    billRequestedAt: order.bill_requested_at ? new Date(order.bill_requested_at).toISOString() : null,
     paymentMethod: order.payment_method,
     qrScope: order.qr_scope ?? null,
     paymentStatus: order.payment_status,
@@ -1924,6 +1968,7 @@ function toOrderResponse(
       quantity: item.quantity,
       subtotal: Number(item.subtotal),
       excludedComplements: item.excluded_complements,
+      roundNumber: item.round_number ?? 1,
     })),
     promotions: promotions.map((promotion) => ({
       promotionId: promotion.promotion_id,
@@ -1932,6 +1977,7 @@ function toOrderResponse(
       comboQuantity: promotion.combo_quantity,
       subtotal: Number(promotion.subtotal),
       componentsSnapshot: promotion.components_snapshot,
+      roundNumber: promotion.round_number ?? 1,
     })),
   };
 }

@@ -157,8 +157,8 @@ export class ReportsService {
     const ids = orders.map((o) => o.id);
     const [items, promotions] = ids.length
       ? await Promise.all([
-          this.db.selectFrom('order_items').selectAll().where('order_id', 'in', ids).execute(),
-          this.db.selectFrom('order_promotions').selectAll().where('order_id', 'in', ids).execute(),
+          this.db.selectFrom('order_items').selectAll().where('order_id', 'in', ids).where('voided_at', 'is', null).execute(),
+          this.db.selectFrom('order_promotions').selectAll().where('order_id', 'in', ids).where('voided_at', 'is', null).execute(),
         ])
       : [[], []];
     const itemsByOrder = groupByOrderId(items);
@@ -203,8 +203,8 @@ export class ReportsService {
     if (!order) throw new NotFoundDomainError('order', orderId);
 
     const [items, promotions, customer, attempts, qrCharges, session] = await Promise.all([
-      this.db.selectFrom('order_items').selectAll().where('order_id', '=', orderId).execute(),
-      this.db.selectFrom('order_promotions').selectAll().where('order_id', '=', orderId).execute(),
+      this.db.selectFrom('order_items').selectAll().where('order_id', '=', orderId).where('voided_at', 'is', null).execute(),
+      this.db.selectFrom('order_promotions').selectAll().where('order_id', '=', orderId).where('voided_at', 'is', null).execute(),
       order.customer_id
         ? this.db
             .selectFrom('customers')
@@ -341,6 +341,7 @@ export class ReportsService {
           sql<string>`sum(subtotal)`.as('revenue'),
         ])
         .where('order_id', 'in', soldOrderIds)
+        .where('voided_at', 'is', null)
         .groupBy('product_id')
         .orderBy('revenue', 'desc')
         .limit(limit)
@@ -354,6 +355,7 @@ export class ReportsService {
           sql<string>`sum(subtotal)`.as('revenue'),
         ])
         .where('order_id', 'in', soldOrderIds)
+        .where('voided_at', 'is', null)
         .groupBy('promotion_name_snapshot')
         .orderBy('revenue', 'desc')
         .limit(limit)
@@ -369,6 +371,7 @@ export class ReportsService {
           sql<string>`sum(order_items.subtotal)`.as('revenue'),
         ])
         .where('order_items.order_id', 'in', soldOrderIds)
+        .where('order_items.voided_at', 'is', null)
         .groupBy(['categories.id', 'categories.name'])
         .orderBy('revenue', 'desc')
         .execute(),

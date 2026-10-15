@@ -7,6 +7,8 @@ const baseOrder: OrderResponse = {
   channel: 'whatsapp',
   customerName: 'Juan Pérez',
   deliveryType: 'delivery',
+  tableId: null,
+  billRequestedAt: null,
   paymentMethod: 'qr',
   qrScope: null,
   paymentStatus: 'unpaid',

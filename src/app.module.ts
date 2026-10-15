@@ -20,6 +20,7 @@ import { AuthModule } from './auth/auth.module';
 import { CashRegisterModule } from './cash-register/cash-register.module';
 import { ReportsModule } from './reports/reports.module';
 import { AgentLocationsModule } from './agent-locations/agent-locations.module';
+import { TablesModule } from './tables/tables.module';
 import { OrderReplacementModule } from './order-replacement/order-replacement.module';
 
 @Module({
@@ -44,6 +45,7 @@ import { OrderReplacementModule } from './order-replacement/order-replacement.mo
     CashRegisterModule,
     ReportsModule,
     AgentLocationsModule,
+    TablesModule,
     OrderReplacementModule,
   ],
 })
