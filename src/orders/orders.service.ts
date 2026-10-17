@@ -15,6 +15,7 @@ import {
 } from '../database/types';
 import {
   DomainException,
+  IdempotencyKeyReusedError,
   InvalidStateTransitionError,
   NotFoundDomainError,
   ProductUnavailableError,
@@ -50,6 +51,7 @@ import { normalizePhone } from '../customers/normalize-phone';
 import { requiresPaymentBeforeHandover } from './payment-gate';
 import { decideLocationAttach, LocationAttachDecision } from './location-attach';
 import { buildQrConfirmationContext, qrAmountFor } from './qr-confirmation-context';
+import { assertWebDeliveryLocation, DeliveryLocationInput, idempotencyBody, sameDeliveryLocation } from './delivery-location';
 
 export interface OrderItemResponse {
   productId: string;
@@ -158,6 +160,13 @@ export interface CheckoutCartInput {
   promotions: { promotionId: string; quantity: number; revision: number }[];
   /** Solo lo pasa LateOrderRequestsService.accept() — un pedido normal nace sin caja, se vincula recién al cobrarse. */
   registerSessionId?: string | null;
+  /**
+   * Ubicación del checkout web (solo `channel='web'` + delivery; ver `assertWebDeliveryLocation`). Con ella el pedido se
+   * guarda, se cotiza (`quoteForOrderInTransaction`, con el subtotal REAL del pedido) y queda `confirmed` (o `pending_manual`)
+   * DENTRO de la misma transacción: nunca existe un pedido `awaiting_location` con ubicación a medias, y por eso nadie
+   * llega a pedirle el pin por WhatsApp. Sin ella, nace `awaiting_location` como siempre.
+   */
+  deliveryLocation?: DeliveryLocationInput | null;
 }
 
 /**
@@ -334,6 +343,13 @@ export class OrdersService {
         'Los pedidos de mesa se abren desde la mesa: POST /tables/:id/account.',
       );
     }
+    // Antes de tocar nada (horario, caja, idempotencia): una ubicación que este canal no puede mandar, o inválida, se
+    // rechaza con un error controlado y no deja ningún estado a medias.
+    const deliveryLocation = assertWebDeliveryLocation({
+      channel: dto.channel,
+      deliveryType: dto.deliveryType,
+      location: dto.deliveryLocation,
+    });
     const now = new Date();
     const bypassAllowed =
       dto.channel === 'external' ||
@@ -371,7 +387,7 @@ export class OrdersService {
     }
 
     if (gate.gate === 'late_review') {
-      const body = await this.createLateOrderRequest(dto, idempotencyKey, now);
+      const body = await this.createLateOrderRequest(dto, idempotencyKey, now, deliveryLocation);
       return { httpStatus: 202, body };
     }
 
@@ -379,7 +395,7 @@ export class OrdersService {
       apiClient,
       endpoint: 'POST /orders',
       idempotencyKey,
-      requestBody: dto,
+      requestBody: idempotencyBody(dto),
       execute: (trx) => this.executeCreateOrder(trx, dto),
     });
 
@@ -390,7 +406,7 @@ export class OrdersService {
     // externa quedaría sosteniendo la transacción abierta. Solo en una
     // creación real (no en una respuesta cacheada de un reintento).
     if (outcome.created) {
-      this.notifyOrderCreated(outcome.body).catch((error: Error) =>
+      this.notifyOrderCreated(outcome.body, { locationProvided: deliveryLocation !== null }).catch((error: Error) =>
         this.logger.warn(`notifyOrderCreated falló para ${outcome.body.id}: ${error.message}`),
       );
     }
@@ -418,17 +434,36 @@ export class OrdersService {
     return allowlist.includes(normalizePhone(customer.phone, { assumeInternational: true }));
   }
 
-  /** Público: también lo dispara `OrderReplacementService` tras crear el pedido de reemplazo. */
-  async notifyOrderCreated(order: OrderResponse): Promise<void> {
+  /**
+   * Público: también lo dispara `OrderReplacementService` tras crear el pedido de reemplazo.
+   *
+   * `locationProvided`: el pedido de delivery nació del checkout web CON su ubicación, ya guardada y cotizada en la misma
+   * transacción de creación (ver `createOrderInTransaction`). Entonces NUNCA se manda `location_request` (la ubicación ya
+   * está; pedirla de nuevo es justo lo que se evita), y los avisos son los de un pedido ya cotizado:
+   *   - `confirmed` + `quoted`: `order_received`, cobro (QR o efectivo, con el total final) y aviso al grupo de reparto,
+   *     igual que tras adjuntar una ubicación por WhatsApp (`sendQrConfirmationAfterQuote`);
+   *   - `awaiting_location` + `pending_manual` (por encima del techo automático): `order_received` y una alerta al
+   *     personal para fijar el envío; el cobro llega cuando staff lo cotiza (`setManualQuote`).
+   * Si el pedido no quedó en uno de esos dos estados (no debería pasar) se ignora la bandera y se cae al comportamiento de
+   * siempre: es mejor pedir la ubicación que dejar al cliente sin ningún aviso.
+   * Se llama SOLO tras el commit y solo en una creación real, nunca en el replay de un reintento idempotente.
+   */
+  async notifyOrderCreated(order: OrderResponse, options: { locationProvided?: boolean } = {}): Promise<void> {
     // Un pedido `external` ya se cobró y se atendió afuera: no hay QR ni avisos.
     if (order.channel === 'external') return;
     if (!order.customerId) return;
+
+    const awaitingManualQuote = order.status === 'awaiting_location' && order.deliveryQuoteStatus === 'pending_manual';
+    const locationAlreadyHandled =
+      options.locationProvided === true &&
+      order.deliveryType === 'delivery' &&
+      ((order.status === 'confirmed' && order.deliveryQuoteStatus === 'quoted') || awaitingManualQuote);
 
     // Delivery: UNA sola solicitud (reason + orderNumber) — Central solo
     // entrega los datos, el agente arma el copy combinado ("recibimos tu
     // pedido" + "mandanos tu ubicación", ver docs/gateway-integration.md).
     // No mandamos order_received aparte: sería un segundo mensaje redundante.
-    if (order.status === 'awaiting_location') {
+    if (order.status === 'awaiting_location' && !locationAlreadyHandled) {
       try {
         await this.sendLocationRequest(order.id, order.customerId, order.orderNumber);
       } catch (error) {
@@ -440,7 +475,8 @@ export class OrdersService {
     }
 
     // Pickup y mesa no esperan nada más de una — a esos sí les llega
-    // order_received, y de una el QR (ver sendQrConfirmation).
+    // order_received, y de una el QR (ver sendQrConfirmation). Igual el delivery
+    // web que ya trae su ubicación.
     try {
       await this.notifications.notifyNow({
         channel: 'whatsapp',
@@ -461,7 +497,57 @@ export class OrdersService {
       );
     }
 
+    if (locationAlreadyHandled && awaitingManualQuote) {
+      await this.alertManualQuoteNeeded(order);
+      return;
+    }
+
     await this.sendQrConfirmation(order);
+    // Delivery web ya cotizado: el grupo de reparto se entera como cuando la cotización llega por WhatsApp. Es best-effort
+    // y solo actúa si el pedido es elegible (efectivo, o QR ya pagado).
+    if (locationAlreadyHandled) await this.deliveryNotices.notifyConfirmed(order.id);
+  }
+
+  /**
+   * Avisos de una solicitud tardía (HTTP 202) de delivery web que traía ubicación y acaba de aceptarse: la ubicación se
+   * aplicó y cotizó dentro de `LateOrderRequestsService.accept`, así que NO hay `location_request`. Cotizado: el cobro (QR o
+   * efectivo) y el aviso al grupo de reparto, como tras adjuntar una ubicación por WhatsApp (el QR además lo respaldaría el
+   * reintento periódico). Fuera del techo automático: alerta al personal. Best-effort, solo tras el commit.
+   */
+  async notifyLateAcceptedWithLocation(orderId: string): Promise<void> {
+    const order = await this.findById(orderId);
+    if (order.status === 'confirmed' && order.deliveryQuoteStatus === 'quoted') {
+      await this.sendQrConfirmationAfterQuote(orderId);
+      return;
+    }
+    if (order.status === 'awaiting_location' && order.deliveryQuoteStatus === 'pending_manual') {
+      await this.alertManualQuoteNeeded(order);
+    }
+  }
+
+  /**
+   * Pedido web de delivery fuera del techo automático: sin cotización manual no hay total final ni cobro, y nadie más se
+   * entera (la ubicación ya viene en el pedido, así que no hay un mensaje de WhatsApp que dispare al agente). Alerta de
+   * texto plano al personal; sin coordenadas ni datos del cliente. Best-effort.
+   */
+  private async alertManualQuoteNeeded(order: OrderResponse): Promise<void> {
+    try {
+      await this.notifications.notifyNow({
+        channel: 'telegram',
+        kind: 'manual_quote_alert',
+        targetRef: order.id,
+        payload: {
+          chatRef: 'staff-group',
+          text:
+            `Pedido ${order.orderNumber} (web) necesita cotización manual de delivery` +
+            `${order.deliveryDistanceMeters !== null ? ` — distancia ${order.deliveryDistanceMeters} m` : ''}. Subtotal ${order.subtotalAmount}.`,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo avisar la cotización manual de ${order.id}: ${(error as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -660,6 +746,9 @@ export class OrdersService {
       // pago ni el mínimo (no son clientes de este sistema).
       settledExternally: dto.channel === 'external',
       skipAvailabilityChecks: dto.channel === 'external',
+      deliveryLocation: dto.deliveryLocation
+        ? { latitude: dto.deliveryLocation.latitude, longitude: dto.deliveryLocation.longitude }
+        : null,
       notes: dto.notes ?? null,
       items: dto.items,
       promotions: (dto.promotions ?? []).map((p) => ({
@@ -913,6 +1002,13 @@ export class OrdersService {
       throw new ValidationError('notes admite como máximo 500 caracteres.');
     }
 
+    // Defensa en profundidad: lo valida también quien llama (create / reemplazo), pero este es el único punto que escribe.
+    const deliveryLocation = assertWebDeliveryLocation({
+      channel: input.channel,
+      deliveryType: input.deliveryType,
+      location: input.deliveryLocation,
+    });
+
     // Antes de bloquear nada: si la forma de pago está apagada, falla rápido.
     const qrScope = input.skipAvailabilityChecks
       ? (input.qrScope ?? null)
@@ -1016,12 +1112,34 @@ export class OrdersService {
         .execute();
     }
 
+    // Ubicación del checkout web: se guarda y se cotiza AHORA, con el pedido ya bloqueado por este mismo trx y con su subtotal
+    // real (la política de envío gratis lo usa). Si la cotización falla (p. ej. falta el origen del local), la excepción
+    // revierte TODO: no queda pedido, ni clave de idempotencia, ni un delivery en Bs 0.
+    let persistedRow = orderRow;
+    if (deliveryLocation) {
+      await trx
+        .updateTable('orders')
+        .set({
+          delivery_latitude: deliveryLocation.latitude,
+          delivery_longitude: deliveryLocation.longitude,
+          updated_at: new Date(),
+        })
+        .where('id', '=', orderRow.id)
+        .execute();
+      await this.deliveryService.quoteForOrderInTransaction(trx, orderRow.id);
+      persistedRow = await trx
+        .selectFrom('orders')
+        .selectAll()
+        .where('id', '=', orderRow.id)
+        .executeTakeFirstOrThrow();
+    }
+
     const { items: insertedItems, promotions: insertedPromotions } = await loadOrderLines(
       trx,
       orderRow.id,
     );
 
-    return toOrderResponse(orderRow, insertedItems, insertedPromotions);
+    return toOrderResponse(persistedRow, insertedItems, insertedPromotions);
   }
 
   /**
@@ -1035,13 +1153,17 @@ export class OrdersService {
     dto: CreateOrderDto,
     idempotencyKey: string,
     now: Date,
+    deliveryLocation: DeliveryLocationInput | null,
   ): Promise<LateOrderRequestAcceptedResponse> {
     const existing = await this.db
       .selectFrom('late_order_requests')
       .selectAll()
       .where('idempotency_key', '=', idempotencyKey)
       .executeTakeFirst();
-    if (existing) return toLateOrderRequestAcceptedResponse(existing);
+    if (existing) {
+      assertSameStoredLocation(existing, deliveryLocation, idempotencyKey);
+      return toLateOrderRequestAcceptedResponse(existing);
+    }
 
     const items = dto.items;
     const promotions = dto.promotions ?? [];
@@ -1118,6 +1240,10 @@ export class OrdersService {
         items_json: JSON.stringify(items),
         promotions_json: JSON.stringify(promotions),
         subtotal_amount: subtotal.toFixed(2),
+        // Solo cuando viene (canal web, delivery): una solicitud sin ubicación no toca estas columnas.
+        ...(deliveryLocation
+          ? { delivery_latitude: deliveryLocation.latitude, delivery_longitude: deliveryLocation.longitude }
+          : {}),
         idempotency_key: idempotencyKey,
         expires_at: expiresAt,
       })
@@ -1153,6 +1279,7 @@ export class OrdersService {
       .selectAll()
       .where('idempotency_key', '=', idempotencyKey)
       .executeTakeFirstOrThrow();
+    assertSameStoredLocation(winner, deliveryLocation, idempotencyKey);
     return toLateOrderRequestAcceptedResponse(winner);
   }
 
@@ -1880,6 +2007,22 @@ function toLateOrderRequestAcceptedResponse(row: {
 }
 
 /** Clave normalizada (orden-insensible) para comparar la selección de complementos excluidos de dos líneas. */
+/**
+ * Un reintento con la misma `Idempotency-Key` NO puede cambiar la ubicación de una solicitud ya guardada: o trae la misma o
+ * es `409 idempotency_key_reused` (igual que en la ruta normal, donde la ubicación forma parte del hash del cuerpo).
+ */
+function assertSameStoredLocation(
+  row: { delivery_latitude?: number | null; delivery_longitude?: number | null },
+  incoming: DeliveryLocationInput | null,
+  idempotencyKey: string,
+): void {
+  const stored =
+    row.delivery_latitude != null && row.delivery_longitude != null
+      ? { latitude: row.delivery_latitude, longitude: row.delivery_longitude }
+      : null;
+  if (!sameDeliveryLocation(stored, incoming)) throw new IdempotencyKeyReusedError(idempotencyKey);
+}
+
 function complementsKey(excluded: string[] | undefined): string {
   return JSON.stringify([...(excluded ?? [])].sort());
 }

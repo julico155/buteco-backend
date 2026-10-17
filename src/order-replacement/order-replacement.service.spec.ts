@@ -519,3 +519,94 @@ describe('OrderReplacementService — canal web (apiClient=web)', () => {
     expect(result.httpStatus).toBe(201);
   });
 });
+
+describe('OrderReplacementService — ubicación del checkout web al reemplazar (NO ejecutado todavía)', () => {
+  const point = { latitude: -17.7833, longitude: -63.1821 };
+  const oldPoint = { latitude: -17.9, longitude: -63.3 };
+  const dto = {
+    customerPhone: '+59170001234',
+    orderId: 'order-1',
+    customerName: 'Juan Pérez',
+    deliveryType: 'delivery' as const,
+    paymentMethod: 'cash' as const,
+    items: [{ productId: 'p1', quantity: 2 }],
+    promotions: [],
+  };
+  const oldOrder = {
+    id: 'order-1',
+    customer_id: 'customer-1',
+    status: 'confirmed',
+    payment_status: 'unpaid',
+    delivery_type: 'delivery',
+    delivery_latitude: oldPoint.latitude,
+    delivery_longitude: oldPoint.longitude,
+  };
+  const tables = () =>
+    tableRouter({ customers: chain(customer), orders: chain(oldOrder), bank_qr_charges: chain([]), payment_attempts: chain([]) });
+
+  it('web con ubicación: el pedido nuevo nace con ESTA ubicación (la que eligió ahora), no con la del pedido viejo', async () => {
+    const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
+
+    const result = await service.createReplacement({ ...dto, deliveryLocation: point }, 'idem-1', 'web', 'web');
+
+    expect(result.httpStatus).toBe(201);
+    expect(orders.createOrderInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ channel: 'web', deliveryLocation: point }),
+    );
+    // La ubicación se aplica DENTRO de createOrderInTransaction; el reuso de WhatsApp (applyLocationLocked) sigue sin tocarse en web.
+    expect(orders.applyLocationLocked).not.toHaveBeenCalled();
+  });
+
+  it('web con ubicación: tras el commit avisa con locationProvided=true (sin location_request)', async () => {
+    const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
+
+    await service.createReplacement({ ...dto, deliveryLocation: point }, 'idem-1', 'web', 'web');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(orders.notifyOrderCreated).toHaveBeenCalledWith(expect.anything(), { locationProvided: true });
+  });
+
+  it('web SIN ubicación: igual que antes (deliveryLocation=null, queda esperando ubicación, locationProvided=false)', async () => {
+    const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
+
+    await service.createReplacement(dto, 'idem-1', 'web', 'web');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(orders.createOrderInTransaction).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ deliveryLocation: null }));
+    expect(orders.notifyOrderCreated).toHaveBeenCalledWith(expect.anything(), { locationProvided: false });
+    expect(orders.applyLocationLocked).not.toHaveBeenCalled();
+  });
+
+  it('WhatsApp no puede mandarla: se rechaza antes de cancelar nada ni crear el pedido, y su reuso de ubicación no cambia', async () => {
+    const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
+
+    await expect(service.createReplacement({ ...dto, deliveryLocation: point }, 'idem-1', 'whatsapp-gateway', 'whatsapp')).rejects.toMatchObject({
+      code: 'delivery_location_not_supported',
+    });
+    expect(orders.createOrderInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('pickup con ubicación se rechaza antes de tocar nada', async () => {
+    const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
+
+    await expect(service.createReplacement({ ...dto, deliveryType: 'pickup', deliveryLocation: point }, 'idem-1', 'web', 'web')).rejects.toMatchObject({
+      code: 'validation_error',
+    });
+    expect(orders.createOrderInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('si el pedido nuevo no se puede crear o cotizar, el error se propaga (la transacción revierte la cancelación del viejo) y no se vincula nada', async () => {
+    const trxUpdateTable = jest.fn(() => chain(undefined));
+    const { service } = createService({
+      dbSelectFrom: jest.fn(),
+      trxSelectFrom: tables(),
+      trxUpdateTable,
+      orders: { createOrderInTransaction: jest.fn().mockRejectedValue(new Error('cotización fallida')) },
+    });
+
+    await expect(service.createReplacement({ ...dto, deliveryLocation: point }, 'idem-1', 'web', 'web')).rejects.toThrow('cotización fallida');
+    // Solo la cancelación del viejo (que la transacción deshace); jamás los vínculos replaces_order_id / replaced_by_order_id.
+    expect(trxUpdateTable).toHaveBeenCalledTimes(1);
+  });
+});

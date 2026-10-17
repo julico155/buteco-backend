@@ -115,6 +115,15 @@ conocida desde el inicio.
 - Procesos cada 10 s: confirmar adelantos pagados, vencer los no pagados y
   marcar los que no se presentaron.
 
+### Fase 5: ubicación del checkout web al crear el pedido (M6A)
+
+El menú web de Buteco permite elegir la ubicación en un mapa y cotizar antes de confirmar. Para que ese pedido no vuelva a
+pedirle el pin al cliente por WhatsApp, `POST /orders` y los reemplazos del canal `web` aceptan un `deliveryLocation`
+opcional: el pedido se crea, se ubica y se cotiza en UNA transacción (en vez de "crear y adjuntar después", que dejaba una
+ventana en la que `location_request` salía antes de adjuntar la ubicación). Contrato, límites y riesgos en
+[gateway-integration.md](gateway-integration.md#ubicación-elegida-en-el-checkout-web-deliverylocation). Migración
+aditiva `1700000013000` (ubicación en las solicitudes fuera de horario). Sin cambios para WhatsApp, POS y pickup.
+
 ## 4. Cómo se verificó
 
 | Qué | Resultado |

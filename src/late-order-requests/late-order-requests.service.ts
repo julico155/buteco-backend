@@ -25,7 +25,14 @@ type AcceptOutcome =
   | { outcome: 'already_settled'; status: string }
   | { outcome: 'expired' }
   | { outcome: 'order_unavailable'; reasonCode: string; customerId: string | null; requestNumber: string }
-  | { outcome: 'accepted'; response: LateOrderRequestResponse; customerId: string | null; orderId: string };
+  | {
+      outcome: 'accepted';
+      response: LateOrderRequestResponse;
+      customerId: string | null;
+      orderId: string;
+      /** La solicitud traía la ubicación del checkout web y el pedido nació ya ubicado y cotizado (o pendiente de cotización manual). */
+      hadLocation: boolean;
+    };
 
 /**
  * Portado de `decide_late_order_request` / `accept_late_order_request`
@@ -130,6 +137,9 @@ export class LateOrderRequestsService {
           qrScope: req.qr_scope,
           // La solicitud ya se validó al crearse; ver CheckoutCartInput.
           skipAvailabilityChecks: true,
+          // Ubicación del checkout web guardada al crear la solicitud (migración 1700000013000). Se aplica y cotiza AQUÍ, en
+          // la misma transacción que crea el pedido; sin ella (solicitudes de siempre) el pedido nace awaiting_location.
+          deliveryLocation: storedLocation(req),
           notes: req.notes,
           items: req.items_json as unknown as { productId: string; quantity: number }[],
           promotions: req.promotions_json as unknown as {
@@ -159,9 +169,13 @@ export class LateOrderRequestsService {
           response: toResponse(updated),
           customerId: req.customer_id,
           orderId: order.id,
+          hadLocation: storedLocation(req) !== null,
         };
       } catch (error) {
-        if (error instanceof DomainException) {
+        // Solo los fallos PERMANENTES del carrito rechazan la solicitud. Un 5xx (p. ej. falta el origen del local al cotizar
+        // la ubicación) es una falla de configuración, no del cliente: se propaga, se revierte todo y la solicitud sigue
+        // 'pending' para reintentar cuando se corrija.
+        if (error instanceof DomainException && error.getStatus() < 500) {
           await sql`rollback to savepoint sp_checkout`.execute(trx);
           await trx
             .updateTable('late_order_requests')
@@ -217,6 +231,13 @@ export class LateOrderRequestsService {
           messageType: 'late_request_accepted',
           context: { requestNumber: result.response.requestNumber, orderId: result.orderId },
         });
+        if (result.hadLocation) {
+          this.ordersService
+            .notifyLateAcceptedWithLocation(result.orderId)
+            .catch((error: Error) =>
+              this.logger.warn(`No se pudo notificar el cobro tras aceptar ${id}: ${error.message}`),
+            );
+        }
         return result.response;
     }
   }
@@ -278,6 +299,16 @@ export class LateOrderRequestsService {
         this.logger.warn(`No se pudo notificar desenlace de ${requestId}: ${error.message}`),
       );
   }
+}
+
+/** Ubicación guardada en la solicitud; `null` si no trae (o la migración aún no existe y la fila no tiene las columnas). */
+function storedLocation(row: {
+  delivery_latitude?: number | null;
+  delivery_longitude?: number | null;
+}): { latitude: number; longitude: number } | null {
+  return row.delivery_latitude != null && row.delivery_longitude != null
+    ? { latitude: row.delivery_latitude, longitude: row.delivery_longitude }
+    : null;
 }
 
 function toResponse(row: {

@@ -14,6 +14,7 @@ import {
 } from '../operational-settings/availability.rules';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { OrdersService } from '../orders/orders.service';
+import { assertWebDeliveryLocation, idempotencyBody } from '../orders/delivery-location';
 import {
   checkReplaceable,
   MoneySignalInput,
@@ -186,6 +187,12 @@ export class OrderReplacementService {
     const settings = await this.operationalSettings.getRow();
     assertChannelEnabled(channelAvailability(settings), channel);
     assertServiceTypeEnabled(serviceAvailability(settings), dto.deliveryType);
+    // Ubicación del checkout web (opcional): solo canal web + delivery; cualquier otro caso se rechaza antes de tocar nada.
+    const deliveryLocation = assertWebDeliveryLocation({
+      channel,
+      deliveryType: dto.deliveryType,
+      location: dto.deliveryLocation,
+    });
     const registerOk =
       settings.require_open_register === false || (await this.cashRegister.isOpen());
     const gate = applyOutOfHoursPolicy(
@@ -209,7 +216,7 @@ export class OrderReplacementService {
       apiClient,
       endpoint: REPLACEMENT_ENDPOINT,
       idempotencyKey,
-      requestBody: dto,
+      requestBody: idempotencyBody(dto),
       execute: async (trx) => {
         const result = await this.executeReplacement(trx, phone, dto, channel);
         return { status: httpStatusForReplacement(result), body: result };
@@ -219,7 +226,7 @@ export class OrderReplacementService {
     if (outcome.created && outcome.body.result === 'replaced') {
       const order = await this.orders.findById(outcome.body.orderId);
       this.orders
-        .notifyOrderCreated(order)
+        .notifyOrderCreated(order, { locationProvided: deliveryLocation !== null })
         .catch((error: Error) =>
           this.logger.warn(`notifyOrderCreated falló para el reemplazo ${order.id}: ${error.message}`),
         );
@@ -286,6 +293,10 @@ export class OrderReplacementService {
       deliveryType: dto.deliveryType,
       paymentMethod: dto.paymentMethod,
       qrScope: dto.qrScope ?? null,
+      // Web con ubicación: el pedido nuevo nace con ESTA ubicación, cotizado en la misma transacción que cancela el viejo.
+      deliveryLocation: dto.deliveryLocation
+        ? { latitude: dto.deliveryLocation.latitude, longitude: dto.deliveryLocation.longitude }
+        : null,
       notes: dto.notes ?? null,
       items: dto.items,
       promotions: (dto.promotions ?? []).map((p) => ({
@@ -310,8 +321,9 @@ export class OrderReplacementService {
     // vuelve a pedir ubicación) y solo si ambos son delivery y el viejo ya
     // la tenía — nunca copia la tarifa: quoteForOrderInTransaction (dentro
     // de applyLocationLocked) la recalcula entera con las reglas vigentes.
-    // Para web NO se copia: el checkout vuelve a pedir la ubicación del
-    // cliente y la adjunta él mismo después — si acá ya hubiéramos cotizado
+    // Para web NO se copia: o bien el checkout manda su ubicación AL CREAR
+    // (`dto.deliveryLocation`, ya aplicada y cotizada arriba), o bien la vuelve
+    // a pedir y la adjunta él mismo después — si acá ya hubiéramos cotizado
     // con la vieja, esa llamada posterior chocaría con `location_conflict`
     // (ver decideLocationAttach) al traer una ubicación distinta sobre un
     // pedido que ya no está awaiting_location.

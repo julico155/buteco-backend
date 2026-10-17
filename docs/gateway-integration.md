@@ -125,6 +125,52 @@ que le pagás al repartidor al recibir."* Si le decís un solo número
 (`totalAmount`) sin aclarar, va a esperar que el QR cubra todo y se va a
 confundir cuando el repartidor le pida el envío en efectivo.
 
+#### Ubicación elegida en el checkout web (`deliveryLocation`)
+
+Extensión OPCIONAL de `POST /orders` (y de `POST /internal/agent/orders/replacements`) para el checkout web: el cliente ya
+eligió su ubicación en el mapa, así que el pedido debe nacer **ya ubicado y cotizado** y nadie debe volver a pedirle el pin
+por WhatsApp. Sin este campo todo funciona exactamente como antes.
+
+```
+POST /orders                                  // credencial del canal `web`
+Idempotency-Key: <uuid por intento real>
+{ ...cuerpo de siempre..., "deliveryType": "delivery",
+  "deliveryLocation": { "latitude": -17.7833, "longitude": -63.1821 } }
+```
+
+- **Quién puede mandarla**: solo la credencial del canal `web` (el canal sale del token, nunca de un campo que declare el
+  navegador) y solo con `deliveryType: "delivery"`. WhatsApp, POS y `external` reciben `400 delivery_location_not_supported`
+  (no se ignora en silencio); pickup/mesa, `400 validation_error`. Los errores nunca devuelven las coordenadas.
+- **Forma**: exactamente `latitude` y `longitude`, números finitos en rango (−90..90 / −180..180). Un texto, un campo extra
+  (importes, tarifas, `quoteId`…) o un valor fuera de rango se rechaza con 400 antes de crear nada.
+- **Qué hace Central**: en LA MISMA transacción que crea el pedido guarda las coordenadas y lo cotiza con su cálculo de
+  siempre (`quoteForOrderInTransaction`): distancia por calle, tarifa por bandas / fija / gratis según el **subtotal real del
+  pedido** (calculado desde el catálogo; el navegador nunca manda subtotal), recargo por lluvia (una sola vez, nunca sobre un
+  envío gratis) y total. Si la cotización no puede calcularse (p. ej. falta el origen del local) la transacción entera se
+  revierte: no queda pedido, ni clave de idempotencia, ni un delivery en Bs 0. `POST /delivery/quotes` (la estimación del menú)
+  no interviene: el importe definitivo es siempre el de esta cotización autoritativa.
+- **Respuesta 201** (mismo cuerpo de siempre, sin coordenadas):
+  - `status: "confirmed"` + `deliveryQuoteStatus: "quoted"` + `deliveryBaseAmount` / `deliverySurchargeAmount` / `totalAmount`
+    definitivos; o
+  - `status: "awaiting_location"` + `deliveryQuoteStatus: "pending_manual"` si la distancia supera el techo automático: ya
+    tiene las coordenadas, **no** hay importe de envío y `totalAmount` es solo el subtotal hasta que el personal fije el envío
+    (`POST /orders/:id/delivery/quote/manual`). Central avisa al personal por Telegram (`manual_quote_alert`, sin coordenadas).
+- **Avisos al cliente**: `order_received` y, con el total final, el cobro (`qr_confirmation` o `cash_on_delivery_confirmation`),
+  más el aviso al grupo de reparto. **Nunca `location_request`**: se decide después del commit y con el estado real del pedido
+  (si por cualquier motivo no quedó ubicado, cae a pedir la ubicación). Un reintento idempotente (200) no avisa nada.
+- **HTTP 202** (fuera de horario): la solicitud (`late_order_requests`) guarda las coordenadas (migración 1700000013000); no
+  existe aún ningún pedido ni `orderId`, y la respuesta 202 no cambia ni lleva coordenadas. Al ACEPTARLA, el pedido nace
+  ubicado y cotizado en la transacción de `accept` (mismos avisos de cobro, sin `location_request`). Un fallo 5xx al cotizar
+  (configuración) no rechaza la solicitud: queda pendiente para reintentar.
+- **Idempotencia**: la ubicación forma parte del cuerpo hasheado; la misma clave con otra ubicación (o con/sin ella) es
+  `409 idempotency_key_reused` y no cambia nada. En la ruta 202, igual: `409 idempotency_key_reused` si el reintento trae otra.
+  Un cuerpo SIN ubicación produce exactamente el mismo hash que antes de esta extensión.
+- **Reemplazos (`channel` web)**: con `deliveryLocation`, el pedido nuevo nace con ESA ubicación (cotizado en la misma
+  transacción que cancela el viejo); nunca se copia la del pedido viejo. Sin ella, el pedido nuevo queda esperando ubicación
+  como siempre. La regla de WhatsApp (reusar la ubicación del pedido anterior) no cambia.
+- **No cambia**: pedidos de WhatsApp, POS y pickup; `POST /orders/:id/location` y `POST /internal/agent/locations/attach`;
+  `location_conflict` (un pin posterior no modifica un pedido ya ubicado o en `pending_manual`).
+
 #### Ubicación por teléfono (sin conocer el `orderId`)
 
 ```
@@ -340,7 +386,8 @@ el nuevo sigue siendo delivery, Central reusa la ubicación guardada (nunca
 la tarifa: se recotiza entera) — no hace falta volver a pedir el pin. Para
 `web` esto NO aplica — el pedido nuevo siempre queda esperando ubicación
 propia (el checkout la vuelve a pedir y la adjunta con
-`POST /orders/:id/location`), justamente para que esa llamada no choque con
+`POST /orders/:id/location`; o bien la manda al crear con `deliveryLocation`, ver
+"Ubicación elegida en el checkout web"), justamente para que esa llamada no choque con
 `location_conflict` contra una ubicación que Central ya hubiera copiado y
 cotizado de antes. Si cambia a `pickup`, o si no había ubicación previa,
 sigue el flujo normal de `location_request`.

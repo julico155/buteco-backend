@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { OrderDeliveryType, OrderPaymentMethod, QrScope } from '../../database/types';
+import { DeliveryLocationDto } from '../../orders/dto/delivery-location.dto';
 import { OrderItemInputDto } from '../../orders/dto/order-item-input.dto';
 import { OrderPromotionInputDto } from '../../orders/dto/order-promotion-input.dto';
 
@@ -55,6 +56,16 @@ export class CreateOrderReplacementDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  /**
+   * OPCIONAL, solo canal `web` + delivery (ver `CreateOrderDto.deliveryLocation`). El pedido nuevo nace con ESTA ubicación,
+   * cotizado en la misma transacción; nunca se copia la del pedido viejo en web. Sin ella, el pedido nuevo queda esperando
+   * ubicación como siempre.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DeliveryLocationDto)
+  deliveryLocation?: DeliveryLocationDto;
 
   @IsArray()
   @ArrayMinSize(0)

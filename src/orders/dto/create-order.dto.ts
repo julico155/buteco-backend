@@ -12,6 +12,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { OrderChannel, OrderDeliveryType, OrderPaymentMethod, QrScope } from '../../database/types';
+import { DeliveryLocationDto } from './delivery-location.dto';
 import { OrderItemInputDto } from './order-item-input.dto';
 import { OrderPromotionInputDto } from './order-promotion-input.dto';
 
@@ -70,6 +71,17 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => OrderPromotionInputDto)
   promotions?: OrderPromotionInputDto[];
+
+  /**
+   * OPCIONAL. Ubicación elegida en el checkout web, para que el pedido nazca ya cotizado y no se le vuelva a pedir el
+   * pin por WhatsApp. Solo la admite la credencial del canal `web` y solo con `deliveryType='delivery'` (si no, 400
+   * `delivery_location_not_supported` / `validation_error`). Sin ella, todo funciona como siempre. Ningún importe de
+   * delivery viaja aquí: Central cotiza con su propio cálculo y el subtotal real del pedido.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DeliveryLocationDto)
+  deliveryLocation?: DeliveryLocationDto;
 
   /** Solo honrado para staff con rol autorizado — ver módulo `auth` (pendiente). */
   @IsOptional()
