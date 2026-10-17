@@ -132,15 +132,24 @@ eligió su ubicación en el mapa, así que el pedido debe nacer **ya ubicado y c
 por WhatsApp. Sin este campo todo funciona exactamente como antes.
 
 ```
-POST /orders                                  // credencial del canal `web`
+POST /orders                                  // credencial `web` o `whatsapp-gateway` (ver "Quién puede mandarla")
 Idempotency-Key: <uuid por intento real>
 { ...cuerpo de siempre..., "deliveryType": "delivery",
   "deliveryLocation": { "latitude": -17.7833, "longitude": -63.1821 } }
 ```
 
-- **Quién puede mandarla**: solo la credencial del canal `web` (el canal sale del token, nunca de un campo que declare el
-  navegador) y solo con `deliveryType: "delivery"`. WhatsApp, POS y `external` reciben `400 delivery_location_not_supported`
-  (no se ignora en silencio); pickup/mesa, `400 validation_error`. Los errores nunca devuelven las coordenadas.
+- **Quién puede mandarla**: la autoriza la **identidad del servicio autenticado** (el api_client que resuelve el token de
+  `SERVICE_AUTH_TOKENS`), nunca un campo `channel` del body ni el canal por sí solo. Hay exactamente dos servicios autorizados:
+  - `web`: la credencial del canal web, con las restricciones de siempre;
+  - `whatsapp-gateway`: credencial de **servidor** compartida por el agente y por el menú web (`BACKEND_CENTRAL_SERVICE_TOKEN`
+    en menu-web). La autorización identifica al servicio autorizado, **no exclusivamente al checkout web**; nunca se expone al
+    navegador. **El pedido conserva `channel = whatsapp`** (no se reetiqueta como web): sus avisos, su búsqueda del pedido
+    activo, las opciones de pago y los reemplazos siguen siendo los del canal WhatsApp.
+
+  Ninguna otra credencial queda autorizada, ni siquiera una que mapeara al canal `whatsapp`: habría que añadirla a propósito a
+  `DELIVERY_LOCATION_PRINCIPALS` (`src/orders/delivery-location.ts`). POS (JWT de staff) y `external` reciben
+  `400 delivery_location_not_supported` (no se ignora en silencio). Solo con `deliveryType: "delivery"` (pickup/mesa:
+  `400 validation_error`). No se crearon tokens ni se tocó `SERVICE_AUTH_TOKENS`. Los errores nunca devuelven las coordenadas.
 - **Forma**: exactamente `latitude` y `longitude`, números finitos en rango (−90..90 / −180..180). Un texto, un campo extra
   (importes, tarifas, `quoteId`…) o un valor fuera de rango se rechaza con 400 antes de crear nada.
 - **Qué hace Central**: en LA MISMA transacción que crea el pedido guarda las coordenadas y lo cotiza con su cálculo de
@@ -158,17 +167,20 @@ Idempotency-Key: <uuid por intento real>
 - **Avisos al cliente**: `order_received` y, con el total final, el cobro (`qr_confirmation` o `cash_on_delivery_confirmation`),
   más el aviso al grupo de reparto. **Nunca `location_request`**: se decide después del commit y con el estado real del pedido
   (si por cualquier motivo no quedó ubicado, cae a pedir la ubicación). Un reintento idempotente (200) no avisa nada.
-- **HTTP 202** (fuera de horario): la solicitud (`late_order_requests`) guarda las coordenadas (migración 1700000013000); no
+- **HTTP 202** (fuera de horario): la solicitud (`late_order_requests`) guarda las coordenadas (migraciones 1700000013000 y
+  1700000014000, esta última admite también `channel = whatsapp`); no
   existe aún ningún pedido ni `orderId`, y la respuesta 202 no cambia ni lleva coordenadas. Al ACEPTARLA, el pedido nace
   ubicado y cotizado en la transacción de `accept` (mismos avisos de cobro, sin `location_request`). Un fallo 5xx al cotizar
   (configuración) no rechaza la solicitud: queda pendiente para reintentar.
 - **Idempotencia**: la ubicación forma parte del cuerpo hasheado; la misma clave con otra ubicación (o con/sin ella) es
   `409 idempotency_key_reused` y no cambia nada. En la ruta 202, igual: `409 idempotency_key_reused` si el reintento trae otra.
   Un cuerpo SIN ubicación produce exactamente el mismo hash que antes de esta extensión.
-- **Reemplazos (`channel` web)**: con `deliveryLocation`, el pedido nuevo nace con ESA ubicación (cotizado en la misma
-  transacción que cancela el viejo); nunca se copia la del pedido viejo. Sin ella, el pedido nuevo queda esperando ubicación
-  como siempre. La regla de WhatsApp (reusar la ubicación del pedido anterior) no cambia.
-- **No cambia**: pedidos de WhatsApp, POS y pickup; `POST /orders/:id/location` y `POST /internal/agent/locations/attach`;
+- **Reemplazos (`web` y `whatsapp-gateway`)**: con `deliveryLocation`, el pedido nuevo nace con ESA ubicación (cotizado en la
+  misma transacción que cancela el viejo) y conserva el canal; nunca se copia la del pedido viejo (en WhatsApp, además, no se
+  ejecuta el reuso de la ubicación anterior, porque el nuevo ya está ubicado y cotizado). Sin ella, el comportamiento no cambia:
+  web queda esperando ubicación y WhatsApp reusa la del pedido anterior. El reemplazo sigue limitado al pedido activo del MISMO
+  canal (no cruza canales).
+- **No cambia**: pedidos de WhatsApp sin ubicación, POS y pickup; `POST /orders/:id/location` y `POST /internal/agent/locations/attach`;
   `location_conflict` (un pin posterior no modifica un pedido ya ubicado o en `pending_manual`).
 
 #### Ubicación por teléfono (sin conocer el `orderId`)

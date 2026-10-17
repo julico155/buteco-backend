@@ -554,7 +554,7 @@ describe('OrderReplacementService — ubicación del checkout web al reemplazar 
       expect.anything(),
       expect.objectContaining({ channel: 'web', deliveryLocation: point }),
     );
-    // La ubicación se aplica DENTRO de createOrderInTransaction; el reuso de WhatsApp (applyLocationLocked) sigue sin tocarse en web.
+    // La ubicación se aplica DENTRO de createOrderInTransaction; el reuso de WhatsApp (applyLocationLocked) no corre en web.
     expect(orders.applyLocationLocked).not.toHaveBeenCalled();
   });
 
@@ -578,12 +578,55 @@ describe('OrderReplacementService — ubicación del checkout web al reemplazar 
     expect(orders.applyLocationLocked).not.toHaveBeenCalled();
   });
 
-  it('WhatsApp no puede mandarla: se rechaza antes de cancelar nada ni crear el pedido, y su reuso de ubicación no cambia', async () => {
+  it('10. whatsapp-gateway con ubicación: el pedido nuevo nace con ESTA ubicación y conserva el canal whatsapp', async () => {
     const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
 
-    await expect(service.createReplacement({ ...dto, deliveryLocation: point }, 'idem-1', 'whatsapp-gateway', 'whatsapp')).rejects.toMatchObject({
-      code: 'delivery_location_not_supported',
-    });
+    const result = await service.createReplacement({ ...dto, deliveryLocation: point }, 'idem-1', 'whatsapp-gateway', 'whatsapp');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(result.httpStatus).toBe(201);
+    expect(orders.createOrderInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ channel: 'whatsapp', deliveryLocation: point }),
+    );
+    expect(orders.notifyOrderCreated).toHaveBeenCalledWith(expect.anything(), { locationProvided: true });
+  });
+
+  it('10. whatsapp-gateway con ubicación: NO se reaplica la del pedido viejo (el nuevo ya nació ubicado y cotizado)', async () => {
+    const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
+
+    await service.createReplacement({ ...dto, deliveryLocation: point }, 'idem-1', 'whatsapp-gateway', 'whatsapp');
+
+    // El pedido viejo tenía ubicación (oldPoint): sin esta guarda se llamaría applyLocationLocked y chocaría con un pedido ya cotizado.
+    expect(orders.applyLocationLocked).not.toHaveBeenCalled();
+  });
+
+  it('9. whatsapp-gateway SIN ubicación: el reuso de la ubicación del pedido viejo sigue exactamente igual que antes', async () => {
+    const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
+
+    await service.createReplacement(dto, 'idem-1', 'whatsapp-gateway', 'whatsapp');
+
+    expect(orders.createOrderInTransaction).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ channel: 'whatsapp', deliveryLocation: null }));
+    expect(orders.applyLocationLocked).toHaveBeenCalledWith(expect.anything(), expect.anything(), oldPoint);
+  });
+
+  it('un api_client sin permiso (aunque el canal sea whatsapp) la rechaza antes de cancelar nada ni crear el pedido', async () => {
+    const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
+
+    for (const [apiClient, channel] of [['otro-gateway', 'whatsapp'], ['pos', 'pos'], ['external', 'external']] as const) {
+      await expect(service.createReplacement({ ...dto, deliveryLocation: point }, 'idem-1', apiClient, channel)).rejects.toMatchObject({
+        code: 'delivery_location_not_supported',
+      });
+    }
+    expect(orders.createOrderInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('whatsapp-gateway con pickup y ubicación se rechaza antes de tocar nada', async () => {
+    const { service, orders } = createService({ dbSelectFrom: jest.fn(), trxSelectFrom: tables() });
+
+    await expect(
+      service.createReplacement({ ...dto, deliveryType: 'pickup', deliveryLocation: point }, 'idem-1', 'whatsapp-gateway', 'whatsapp'),
+    ).rejects.toMatchObject({ code: 'validation_error' });
     expect(orders.createOrderInTransaction).not.toHaveBeenCalled();
   });
 

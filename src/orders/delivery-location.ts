@@ -9,16 +9,37 @@ export interface DeliveryLocationInput {
 }
 
 /**
- * Regla única de quién puede mandar una ubicación AL CREAR un pedido (checkout web). Se evalúa con el canal que sale de
- * la CREDENCIAL (`resolveOrderChannel`), nunca con un campo que declare el navegador:
- *   - solo el canal `web`: WhatsApp, POS y `external` siguen usando su flujo de siempre (ubicación por WhatsApp, o ninguna).
- *     Si alguno la manda, se rechaza en vez de ignorarla en silencio;
+ * Servicios (api_client autenticados) que pueden mandar una ubicación AL CREAR un pedido, y el canal que cada uno produce.
+ * La autorización la decide la IDENTIDAD del servicio autenticado (el token de `SERVICE_AUTH_TOKENS`), nunca un campo del
+ * body ni el canal por sí solo:
+ *   - `web`: la credencial del canal web (restricciones de siempre);
+ *   - `whatsapp-gateway`: credencial de SERVIDOR compartida por el agente y por el menú web (`BACKEND_CENTRAL_SERVICE_TOKEN`).
+ *     Autoriza al servicio, no exclusivamente al checkout web; el pedido sigue siendo canal `whatsapp`. Nunca llega al navegador.
+ * Cualquier otro api_client (POS/JWT de staff, `external`, uno nuevo que mapee a `whatsapp`) NO queda autorizado: hay que
+ * agregarlo aquí a propósito.
+ */
+const DELIVERY_LOCATION_PRINCIPALS: Readonly<Record<string, OrderChannel>> = {
+  web: 'web',
+  'whatsapp-gateway': 'whatsapp',
+};
+
+/** `true` solo si ESE servicio autenticado, con el canal que sale de su credencial, puede mandar `deliveryLocation`. */
+export function canSendDeliveryLocation(apiClient: string | undefined, channel: OrderChannel): boolean {
+  return apiClient !== undefined && Object.prototype.hasOwnProperty.call(DELIVERY_LOCATION_PRINCIPALS, apiClient) && DELIVERY_LOCATION_PRINCIPALS[apiClient] === channel;
+}
+
+/**
+ * Regla única de quién puede mandar una ubicación AL CREAR un pedido (checkout web). Se evalúa con el api_client autenticado
+ * y el canal que sale de esa misma CREDENCIAL (`resolveOrderChannel`), nunca con un campo que declare el navegador:
+ *   - solo los servicios de `DELIVERY_LOCATION_PRINCIPALS` (`web` y `whatsapp-gateway`); POS y `external` siguen con su flujo
+ *     de siempre y, si la mandan, se rechaza en vez de ignorarla en silencio;
  *   - solo `delivery`: pickup y mesa no tienen ubicación;
  *   - coordenadas numéricas, finitas y dentro de rango (el DTO ya lo exige; esto es la última defensa de quien cree el pedido).
  * Devuelve la ubicación normalizada, o `null` si no vino ninguna (los clientes anteriores siguen igual). Los errores nunca
  * llevan las coordenadas.
  */
 export function assertWebDeliveryLocation(params: {
+  apiClient: string | undefined;
   channel: OrderChannel;
   deliveryType: OrderDeliveryType;
   location: DeliveryLocationInput | null | undefined;
@@ -26,15 +47,40 @@ export function assertWebDeliveryLocation(params: {
   const { location } = params;
   if (location === null || location === undefined) return null;
 
-  if (params.channel !== 'web') {
-    throw new DomainException(
-      'delivery_location_not_supported',
-      HttpStatus.BAD_REQUEST,
-      'La ubicación al crear el pedido solo la admite el checkout web.',
-      { channel: params.channel },
-    );
+  if (!canSendDeliveryLocation(params.apiClient, params.channel)) {
+    throw notSupported(params.channel);
   }
-  if (params.deliveryType !== 'delivery') {
+  return normalizeDeliveryLocation(params.deliveryType, location);
+}
+
+/**
+ * Defensa en profundidad de `createOrderInTransaction`, el único punto que escribe. Allí ya no se conoce al servicio (una
+ * solicitud tardía se acepta mucho después, con el JWT de staff), así que solo se exige lo que el servicio autorizado ya
+ * dejó establecido: un canal que tiene algún servicio autorizado (`web` / `whatsapp`; nunca `pos` ni `external`), delivery y
+ * coordenadas válidas. La autorización por servicio ocurre en los puntos de entrada (`create`, reemplazos) con `assertWebDeliveryLocation`.
+ */
+export function assertDeliveryLocationForWrite(params: {
+  channel: OrderChannel;
+  deliveryType: OrderDeliveryType;
+  location: DeliveryLocationInput | null | undefined;
+}): DeliveryLocationInput | null {
+  const { location } = params;
+  if (location === null || location === undefined) return null;
+  if (!Object.values(DELIVERY_LOCATION_PRINCIPALS).includes(params.channel)) throw notSupported(params.channel);
+  return normalizeDeliveryLocation(params.deliveryType, location);
+}
+
+function notSupported(channel: OrderChannel): DomainException {
+  return new DomainException(
+    'delivery_location_not_supported',
+    HttpStatus.BAD_REQUEST,
+    'Esta credencial no puede mandar la ubicación al crear el pedido.',
+    { channel },
+  );
+}
+
+function normalizeDeliveryLocation(deliveryType: OrderDeliveryType, location: DeliveryLocationInput): DeliveryLocationInput {
+  if (deliveryType !== 'delivery') {
     throw new ValidationError('deliveryLocation solo aplica a pedidos de delivery.');
   }
   if (!isCoordinate(location.latitude, 90) || !isCoordinate(location.longitude, 180)) {

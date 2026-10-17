@@ -68,6 +68,15 @@ describe('LateOrderRequestsService.accept con ubicación del checkout web', () =
     expect(createOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ channel: 'web', deliveryType: 'delivery', skipAvailabilityChecks: true, deliveryLocation: point }));
   });
 
+  it('whatsapp-gateway: la solicitud aceptada nace con channel whatsapp (no web), ubicada y cotizada', async () => {
+    const createOrder = jest.fn().mockResolvedValue(created);
+    const { service } = createService({ channel: 'whatsapp', delivery_latitude: point.latitude, delivery_longitude: point.longitude }, createOrder);
+
+    await service.accept('req-1', 'staff');
+
+    expect(createOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ channel: 'whatsapp', deliveryType: 'delivery', deliveryLocation: point }));
+  });
+
   it('al aceptarse avisa el cobro / la cotización manual del pedido ya ubicado; NUNCA un location_request', async () => {
     const createOrder = jest.fn().mockResolvedValue(created);
     const { service, ordersService, notifications } = createService({ delivery_latitude: point.latitude, delivery_longitude: point.longitude }, createOrder);

@@ -118,11 +118,15 @@ conocida desde el inicio.
 ### Fase 5: ubicación del checkout web al crear el pedido (M6A)
 
 El menú web de Buteco permite elegir la ubicación en un mapa y cotizar antes de confirmar. Para que ese pedido no vuelva a
-pedirle el pin al cliente por WhatsApp, `POST /orders` y los reemplazos del canal `web` aceptan un `deliveryLocation`
-opcional: el pedido se crea, se ubica y se cotiza en UNA transacción (en vez de "crear y adjuntar después", que dejaba una
+pedirle el pin al cliente por WhatsApp, `POST /orders` y los reemplazos aceptan un `deliveryLocation` opcional: el pedido se crea, se ubica y se cotiza en UNA transacción (en vez de "crear y adjuntar después", que dejaba una
 ventana en la que `location_request` salía antes de adjuntar la ubicación). Contrato, límites y riesgos en
 [gateway-integration.md](gateway-integration.md#ubicación-elegida-en-el-checkout-web-deliverylocation). Migración
-aditiva `1700000013000` (ubicación en las solicitudes fuera de horario). Sin cambios para WhatsApp, POS y pickup.
+aditiva `1700000013000` (ubicación en las solicitudes fuera de horario). Sin cambios para WhatsApp sin ubicación, POS y pickup.
+
+**M6A.1 (autorización por servicio).** Como el menú web usa la credencial de servidor `whatsapp-gateway` (la misma del agente,
+canal `whatsapp`), la ubicación se autoriza por **servicio autenticado**: `web` y `whatsapp-gateway`, nada más. El pedido
+conserva el canal `whatsapp`; no hay tokens nuevos ni cambios en `SERVICE_AUTH_TOKENS`. POS y `external` siguen rechazados.
+Migración aditiva `1700000014000` (la restricción de las solicitudes tardías admite `whatsapp` además de `web`).
 
 ## 4. Cómo se verificó
 

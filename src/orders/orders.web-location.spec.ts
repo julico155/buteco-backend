@@ -209,7 +209,17 @@ describe('createOrderInTransaction con la ubicación del checkout web', () => {
     expect(order).toMatchObject({ status: 'awaiting_location', deliveryQuoteStatus: 'pending', totalAmount: 50 });
   });
 
-  it.each(['whatsapp', 'pos', 'external'] as const)('el canal %s no puede mandarla: se rechaza ANTES de escribir nada', async (channel) => {
+  it.each(['web', 'whatsapp'] as const)('3. el canal %s (con servicio autorizado) la guarda y cotiza, y el pedido conserva ese canal', async (channel) => {
+    const { service, log, quote } = createService();
+    const { trx } = fakeTrx(log, { inserted: { ...insertedRow, channel }, final: { ...quotedRow, channel } });
+
+    const order = await service.createOrderInTransaction(trx as never, { ...input, channel, deliveryLocation: point });
+
+    expect(quote).toHaveBeenCalledTimes(1);
+    expect(order).toMatchObject({ channel, status: 'confirmed', deliveryQuoteStatus: 'quoted' });
+  });
+
+  it.each(['pos', 'external'] as const)('el canal %s no puede mandarla: se rechaza ANTES de escribir nada', async (channel) => {
     const { service, log, quote } = createService();
     const { trx } = fakeTrx(log, { inserted: insertedRow, final: quotedRow });
 
@@ -255,11 +265,63 @@ describe('OrdersService.create con deliveryLocation', () => {
     return { ...ctx, run, notify };
   }
 
-  it('el canal que no es web la rechaza antes de tocar la idempotencia', async () => {
+  it.each([
+    ['5. POS', 'pos', 'pos'],
+    ['6. external', 'external', 'external'],
+  ] as const)('%s la rechaza antes de tocar la idempotencia', async (_name, apiClient, channel) => {
     const { service, run } = withIdempotency();
 
-    expect(await codeOf(service.create({ ...dto, channel: 'whatsapp', deliveryLocation: point }, 'idem-1', 'whatsapp-gateway'))).toBe('delivery_location_not_supported');
+    expect(await codeOf(service.create({ ...dto, channel, deliveryLocation: point }, 'idem-1', apiClient))).toBe('delivery_location_not_supported');
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('4. un api_client no autorizado que produjera canal whatsapp no hereda el permiso: se rechaza antes de la idempotencia', async () => {
+    const { service, run } = withIdempotency();
+
+    expect(await codeOf(service.create({ ...dto, channel: 'whatsapp', deliveryLocation: point }, 'idem-1', 'otro-gateway'))).toBe('delivery_location_not_supported');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('un body con channel web pero la credencial equivocada no gana permiso (el controlador ya fija el canal por credencial)', async () => {
+    const { service, run } = withIdempotency();
+
+    expect(await codeOf(service.create({ ...dto, channel: 'web', deliveryLocation: point }, 'idem-1', 'whatsapp-gateway'))).toBe('delivery_location_not_supported');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('1/2. web y whatsapp-gateway (cada uno con SU canal) llegan hasta la idempotencia; el canal NO cambia', async () => {
+    for (const [apiClient, channel] of [['web', 'web'], ['whatsapp-gateway', 'whatsapp']] as const) {
+      const { service, run } = withIdempotency();
+
+      await service.create({ ...dto, channel, deliveryLocation: point }, `idem-${apiClient}`, apiClient);
+
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({ apiClient, requestBody: expect.objectContaining({ channel, deliveryLocation: point }) }));
+    }
+  });
+
+  it('9. un pedido tradicional de WhatsApp (sin ubicación) funciona igual: sin clave nueva en el hash y locationProvided=false', async () => {
+    const { service, run, notify } = withIdempotency(true);
+
+    await service.create({ ...dto, channel: 'whatsapp' }, 'idem-1', 'whatsapp-gateway');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const requestBody = (run.mock.calls as unknown as Array<[{ requestBody: object }]>)[0][0].requestBody;
+    expect(Object.keys(requestBody)).not.toContain('deliveryLocation');
+    expect(notify).toHaveBeenCalledWith(body, { locationProvided: false });
+  });
+
+  it('12. whatsapp-gateway con ubicación: la creación real avisa con locationProvided=true; el reintento idempotente (200) no avisa', async () => {
+    const created = withIdempotency(true);
+    await created.service.create({ ...dto, channel: 'whatsapp', deliveryLocation: point }, 'idem-1', 'whatsapp-gateway');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(created.notify).toHaveBeenCalledWith(body, { locationProvided: true });
+
+    const replay = withIdempotency(false);
+    const result = await replay.service.create({ ...dto, channel: 'whatsapp', deliveryLocation: point }, 'idem-1', 'whatsapp-gateway');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(result.httpStatus).toBe(200);
+    expect(replay.notify).not.toHaveBeenCalled();
   });
 
   it('pickup con ubicación se rechaza antes de la idempotencia', async () => {
@@ -476,9 +538,9 @@ describe('createLateOrderRequest con ubicación (HTTP 202)', () => {
       {} as never, ctx.notifications as never, {} as never, {} as never,
       { get: jest.fn(() => 20) } as never, {} as never, { resolve: jest.fn().mockResolvedValue(null) } as never,
     );
-    const call = (location: { latitude: number; longitude: number } | null) =>
+    const call = (location: { latitude: number; longitude: number } | null, channel: 'web' | 'whatsapp' = 'web') =>
       (service as unknown as { createLateOrderRequest(dto: unknown, key: string, now: Date, location: unknown): Promise<unknown> }).createLateOrderRequest(
-        { customerName: 'Ana', channel: 'web', deliveryType: 'delivery', paymentMethod: 'cash', items: [{ productId: 'p1', quantity: 2 }], promotions: [] },
+        { customerName: 'Ana', channel, deliveryType: 'delivery', paymentMethod: 'cash', items: [{ productId: 'p1', quantity: 2 }], promotions: [] },
         'late-key', new Date('2026-10-06T16:00:00Z'), location,
       );
     return { call, inserted, notifications: ctx.notifications };
@@ -490,6 +552,16 @@ describe('createLateOrderRequest con ubicación (HTTP 202)', () => {
     await call(point);
 
     expect(inserted[0]).toMatchObject({ delivery_latitude: point.latitude, delivery_longitude: point.longitude, channel: 'web', delivery_type: 'delivery' });
+  });
+
+  it('11. whatsapp-gateway con ubicación: la solicitud 202 guarda las coordenadas y conserva channel whatsapp', async () => {
+    const { call, inserted } = lateService();
+
+    const response = await call(point, 'whatsapp');
+
+    expect(inserted[0]).toMatchObject({ delivery_latitude: point.latitude, delivery_longitude: point.longitude, channel: 'whatsapp', delivery_type: 'delivery' });
+    // El contrato 202 de M6A no cambia: ni coordenadas ni orderId.
+    expect(Object.keys(response as object).sort()).toEqual(['expiresAt', 'requestId', 'requestNumber', 'status', 'subtotalAmount']);
   });
 
   it('sin ubicación: no toca las columnas nuevas (funciona aun sin la migración)', async () => {
@@ -522,6 +594,14 @@ describe('createLateOrderRequest con ubicación (HTTP 202)', () => {
 
     await expect(call({ latitude: -17.9, longitude: -63.3 })).rejects.toBeInstanceOf(IdempotencyKeyReusedError);
     await expect(call(null)).rejects.toBeInstanceOf(IdempotencyKeyReusedError);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('12. whatsapp-gateway: reintento con OTRA ubicación sigue siendo 409 idempotency_key_reused', async () => {
+    const { call, inserted } = lateService({ id: 'req-1', request_number: 'SOL-000001', subtotal_amount: '50.00', expires_at: new Date(), delivery_latitude: point.latitude, delivery_longitude: point.longitude });
+
+    await expect(call({ latitude: -17.9, longitude: -63.3 }, 'whatsapp')).rejects.toBeInstanceOf(IdempotencyKeyReusedError);
+    await expect(call(point, 'whatsapp')).resolves.toMatchObject({ requestId: 'req-1' });
     expect(inserted).toHaveLength(0);
   });
 

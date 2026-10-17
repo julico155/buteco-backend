@@ -76,7 +76,7 @@ describeIfDb('Pedido web de delivery con ubicación (integración)', () => {
   const readOrders = (customerId: string) =>
     db
       .selectFrom('orders')
-      .select(['id', 'status', 'delivery_quote_status', 'delivery_latitude', 'delivery_longitude', 'subtotal_amount', 'total_amount', 'delivery_base_amount', 'delivery_surcharge_amount'])
+      .select(['id', 'channel', 'status', 'delivery_quote_status', 'delivery_latitude', 'delivery_longitude', 'subtotal_amount', 'total_amount', 'delivery_base_amount', 'delivery_surcharge_amount'])
       .where('customer_id', '=', customerId)
       .execute();
 
@@ -234,12 +234,24 @@ describeIfDb('Pedido web de delivery con ubicación (integración)', () => {
     expect(sent.map((job) => job.kind)).not.toContain('location_request');
   });
 
-  it('9. WhatsApp no puede mandar la ubicación al crear: se rechaza y no queda nada', async () => {
+  it('9. un servicio sin permiso (POS) no puede mandar la ubicación al crear: se rechaza y no queda nada', async () => {
     const customer = await newCustomer();
 
-    await expect(orders.create({ ...dto(customer.id, { deliveryLocation: A }), channel: 'whatsapp' } as never, key('9'), 'whatsapp-gateway')).rejects.toMatchObject({ code: 'delivery_location_not_supported' });
+    await expect(orders.create({ ...dto(customer.id, { deliveryLocation: A }), channel: 'pos' } as never, key('9'), 'pos')).rejects.toMatchObject({ code: 'delivery_location_not_supported' });
 
     expect(await readOrders(customer.id)).toHaveLength(0);
+  });
+
+  it('9b. whatsapp-gateway SÍ puede: el pedido nace canal whatsapp, ubicado y cotizado, sin location_request', async () => {
+    const customer = await newCustomer();
+
+    const outcome = await orders.create({ ...dto(customer.id, { deliveryLocation: A }), channel: 'whatsapp' } as never, key('9b'), 'whatsapp-gateway');
+    await flush();
+
+    expect(outcome.httpStatus).toBe(201);
+    const [order] = await readOrders(customer.id);
+    expect(order).toMatchObject({ channel: 'whatsapp', status: 'confirmed', delivery_quote_status: 'quoted' });
+    expect(sent.map((job) => job.kind)).not.toContain('location_request');
   });
 
   it('10. un pin posterior por WhatsApp NO toca un pedido web ya ubicado (no hay segunda cotización)', async () => {

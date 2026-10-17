@@ -191,8 +191,8 @@ export interface LateOrderRequestsTable {
   promotions_json: OptionalJsonArray<unknown[]>;
   subtotal_amount: string;
   /**
-   * Ubicación que mandó el checkout web (solo `channel='web'` + delivery). Ambas o ninguna. Se aplica y cotiza al ACEPTAR la
-   * solicitud, en la misma transacción que crea el pedido. Migración 1700000013000.
+   * Ubicación que mandó el checkout web (solo `channel` web/whatsapp + delivery). Ambas o ninguna. Se aplica y cotiza al ACEPTAR la
+   * solicitud, en la misma transacción que crea el pedido. Migraciones 1700000013000 y 1700000014000.
    */
   delivery_latitude: number | null;
   delivery_longitude: number | null;

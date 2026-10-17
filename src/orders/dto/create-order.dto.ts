@@ -74,7 +74,8 @@ export class CreateOrderDto {
 
   /**
    * OPCIONAL. Ubicación elegida en el checkout web, para que el pedido nazca ya cotizado y no se le vuelva a pedir el
-   * pin por WhatsApp. Solo la admite la credencial del canal `web` y solo con `deliveryType='delivery'` (si no, 400
+   * pin por WhatsApp. Solo la admiten los servicios autorizados `web` y `whatsapp-gateway` (esta última es la credencial de servidor
+   * compartida por el menú y el agente; el pedido conserva el canal `whatsapp`) y solo con `deliveryType='delivery'` (si no, 400
    * `delivery_location_not_supported` / `validation_error`). Sin ella, todo funciona como siempre. Ningún importe de
    * delivery viaja aquí: Central cotiza con su propio cálculo y el subtotal real del pedido.
    */

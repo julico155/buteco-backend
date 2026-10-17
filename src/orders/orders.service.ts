@@ -51,7 +51,7 @@ import { normalizePhone } from '../customers/normalize-phone';
 import { requiresPaymentBeforeHandover } from './payment-gate';
 import { decideLocationAttach, LocationAttachDecision } from './location-attach';
 import { buildQrConfirmationContext, qrAmountFor } from './qr-confirmation-context';
-import { assertWebDeliveryLocation, DeliveryLocationInput, idempotencyBody, sameDeliveryLocation } from './delivery-location';
+import { assertDeliveryLocationForWrite, assertWebDeliveryLocation, DeliveryLocationInput, idempotencyBody, sameDeliveryLocation } from './delivery-location';
 
 export interface OrderItemResponse {
   productId: string;
@@ -161,7 +161,7 @@ export interface CheckoutCartInput {
   /** Solo lo pasa LateOrderRequestsService.accept() — un pedido normal nace sin caja, se vincula recién al cobrarse. */
   registerSessionId?: string | null;
   /**
-   * Ubicación del checkout web (solo `channel='web'` + delivery; ver `assertWebDeliveryLocation`). Con ella el pedido se
+   * Ubicación del checkout web (solo delivery y solo de un servicio autorizado: `web` o `whatsapp-gateway`, que conserva el canal `whatsapp`; ver `assertWebDeliveryLocation`). Con ella el pedido se
    * guarda, se cotiza (`quoteForOrderInTransaction`, con el subtotal REAL del pedido) y queda `confirmed` (o `pending_manual`)
    * DENTRO de la misma transacción: nunca existe un pedido `awaiting_location` con ubicación a medias, y por eso nadie
    * llega a pedirle el pin por WhatsApp. Sin ella, nace `awaiting_location` como siempre.
@@ -345,7 +345,9 @@ export class OrdersService {
     }
     // Antes de tocar nada (horario, caja, idempotencia): una ubicación que este canal no puede mandar, o inválida, se
     // rechaza con un error controlado y no deja ningún estado a medias.
+    // Autoriza el SERVICIO autenticado (`apiClient`), no el canal por sí solo ni un campo del body.
     const deliveryLocation = assertWebDeliveryLocation({
+      apiClient,
       channel: dto.channel,
       deliveryType: dto.deliveryType,
       location: dto.deliveryLocation,
@@ -1003,7 +1005,7 @@ export class OrdersService {
     }
 
     // Defensa en profundidad: lo valida también quien llama (create / reemplazo), pero este es el único punto que escribe.
-    const deliveryLocation = assertWebDeliveryLocation({
+    const deliveryLocation = assertDeliveryLocationForWrite({
       channel: input.channel,
       deliveryType: input.deliveryType,
       location: input.deliveryLocation,

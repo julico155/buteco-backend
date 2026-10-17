@@ -187,8 +187,10 @@ export class OrderReplacementService {
     const settings = await this.operationalSettings.getRow();
     assertChannelEnabled(channelAvailability(settings), channel);
     assertServiceTypeEnabled(serviceAvailability(settings), dto.deliveryType);
-    // Ubicación del checkout web (opcional): solo canal web + delivery; cualquier otro caso se rechaza antes de tocar nada.
+    // Ubicación del checkout web (opcional): solo la manda un servicio autorizado (`web` o `whatsapp-gateway`, que conserva su
+    // canal) y solo en delivery; cualquier otro caso se rechaza antes de tocar nada.
     const deliveryLocation = assertWebDeliveryLocation({
+      apiClient,
       channel,
       deliveryType: dto.deliveryType,
       location: dto.deliveryLocation,
@@ -293,7 +295,8 @@ export class OrderReplacementService {
       deliveryType: dto.deliveryType,
       paymentMethod: dto.paymentMethod,
       qrScope: dto.qrScope ?? null,
-      // Web con ubicación: el pedido nuevo nace con ESTA ubicación, cotizado en la misma transacción que cancela el viejo.
+      // Con ubicación (ya autorizada en `createReplacement`): el pedido nuevo nace con ESTA ubicación, cotizado en la misma
+      // transacción que cancela el viejo. El canal no cambia (whatsapp sigue siendo whatsapp).
       deliveryLocation: dto.deliveryLocation
         ? { latitude: dto.deliveryLocation.latitude, longitude: dto.deliveryLocation.longitude }
         : null,
@@ -327,8 +330,11 @@ export class OrderReplacementService {
     // con la vieja, esa llamada posterior chocaría con `location_conflict`
     // (ver decideLocationAttach) al traer una ubicación distinta sobre un
     // pedido que ya no está awaiting_location.
+    // Si el reemplazo trae SU ubicación (`dto.deliveryLocation`), el pedido nuevo ya nació ubicado y cotizado: nunca se pisa
+    // con la del viejo (aplicarla de nuevo chocaría con un pedido que ya no está awaiting_location).
     if (
       channel === 'whatsapp' &&
+      !dto.deliveryLocation &&
       dto.deliveryType === 'delivery' &&
       old.delivery_type === 'delivery' &&
       old.delivery_latitude !== null &&

@@ -58,8 +58,8 @@ export class CreateOrderReplacementDto {
   notes?: string;
 
   /**
-   * OPCIONAL, solo canal `web` + delivery (ver `CreateOrderDto.deliveryLocation`). El pedido nuevo nace con ESTA ubicación,
-   * cotizado en la misma transacción; nunca se copia la del pedido viejo en web. Sin ella, el pedido nuevo queda esperando
+   * OPCIONAL, solo servicios autorizados (`web`, `whatsapp-gateway`) + delivery (ver `CreateOrderDto.deliveryLocation`). El pedido
+   * nuevo nace con ESTA ubicación, cotizado en la misma transacción; nunca se copia la del pedido viejo. Sin ella, el pedido nuevo queda esperando
    * ubicación como siempre.
    */
   @IsOptional()
