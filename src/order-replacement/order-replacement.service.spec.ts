@@ -56,7 +56,7 @@ function createService(opts: {
     }),
   };
   const operationalSettings = {
-    getRow: jest.fn().mockResolvedValue({ business_opens_hour: 0, business_closes_hour: 23, ...ALL_AVAILABLE }),
+    getRow: jest.fn().mockResolvedValue({ business_opens_hour: 0, business_closes_hour: 23, ...ALL_AVAILABLE, channel_external_enabled: true }),
   };
   const cashRegister = { isOpen: jest.fn().mockResolvedValue(true) };
   const orders = {

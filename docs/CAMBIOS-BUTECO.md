@@ -128,6 +128,10 @@ canal `whatsapp`), la ubicación se autoriza por **servicio autenticado**: `web`
 conserva el canal `whatsapp`; no hay tokens nuevos ni cambios en `SERVICE_AUTH_TOKENS`. POS y `external` siguen rechazados.
 Migración aditiva `1700000014000` (la restricción de las solicitudes tardías admite `whatsapp` además de `web`).
 
+### Fase 6: recuperar el resultado de un pedido fuera de horario (M7A)
+
+Un 202 ya se puede recuperar tras una recarga o una respuesta perdida: el reintento con la misma `Idempotency-Key` devuelve el estado actual (con el pedido si fue aceptada) y `GET /late-order-requests/by-key/:key?phone=` lo consulta sin reenviar el carrito, solo con el teléfono del cliente dueño. La clave pasa a ser única por servicio, un reintento con otro contenido da `409`, y el listado y la lectura por UUID de solicitudes quedan solo para staff. Migración `1700000015000`. Detalle en [gateway-integration.md](gateway-integration.md).
+
 ## 4. Cómo se verificó
 
 | Qué | Resultado |

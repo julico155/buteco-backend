@@ -197,6 +197,10 @@ export interface LateOrderRequestsTable {
   delivery_latitude: number | null;
   delivery_longitude: number | null;
   idempotency_key: string;
+  /** Servicio que creó la solicitud: la `idempotency_key` es única por servicio (migración 1700000015000). Nulo solo en filas muy viejas. */
+  api_client: string | null;
+  /** Huella del cuerpo para rechazar un reintento con otro contenido; nula en solicitudes anteriores a la migración. */
+  request_hash: string | null;
   status: Generated<LateOrderRequestStatus>;
   requested_at: Timestamp;
   expires_at: Timestamp;

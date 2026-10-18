@@ -96,7 +96,7 @@ function createService(overrides: { quote?: jest.Mock; idempotencyRun?: jest.Moc
   const deliveryNotices = { notifyConfirmed: jest.fn().mockResolvedValue(undefined) };
   const qrPayments = { generateForOrder: jest.fn().mockResolvedValue({ qrImageUrl: 'https://qr.example/img.png' }) };
   const idempotency = { run: overrides.idempotencyRun ?? jest.fn() };
-  const operationalSettings = { getRow: jest.fn().mockResolvedValue({ business_opens_hour: 0, business_closes_hour: 23, ...ALL_AVAILABLE }) };
+  const operationalSettings = { getRow: jest.fn().mockResolvedValue({ business_opens_hour: 0, business_closes_hour: 23, ...ALL_AVAILABLE, channel_external_enabled: true }) };
   const cashRegister = { isOpen: jest.fn().mockResolvedValue(true) };
   const config = { get: jest.fn((key: string) => (key === 'aiTestPhones' ? [] : key === 'unpaidOrderTtlMinutes' ? 20 : key === 'lateOrderRequestTtlMinutes' ? 20 : 'bank')) };
   const service = new OrdersService(
@@ -266,12 +266,12 @@ describe('OrdersService.create con deliveryLocation', () => {
   }
 
   it.each([
-    ['5. POS', 'pos', 'pos'],
-    ['6. external', 'external', 'external'],
-  ] as const)('%s la rechaza antes de tocar la idempotencia', async (_name, apiClient, channel) => {
+    ['5. POS', 'pos', 'pos', 'delivery_location_not_supported'],
+    ['6. external (delivery ya está prohibido en ese canal)', 'external', 'external', 'validation_error'],
+  ] as const)('%s la rechaza antes de tocar la idempotencia', async (_name, apiClient, channel, code) => {
     const { service, run } = withIdempotency();
 
-    expect(await codeOf(service.create({ ...dto, channel, deliveryLocation: point }, 'idem-1', apiClient))).toBe('delivery_location_not_supported');
+    expect(await codeOf(service.create({ ...dto, channel, deliveryLocation: point }, 'idem-1', apiClient))).toBe(code);
     expect(run).not.toHaveBeenCalled();
   });
 

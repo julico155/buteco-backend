@@ -91,6 +91,35 @@ Respuestas posibles:
 
 **Sobre `Idempotency-Key`**: generá un UUID nuevo por cada intento REAL del usuario de confirmar su pedido, y **reusá el mismo UUID** si estás reintentando la misma request por un timeout/error de red — así nunca se duplica el pedido. No generes uno nuevo en cada reintento automático.
 
+#### Recuperar el resultado de un 202 (M7A)
+
+Si el cliente recarga el menú o se pierde la respuesta de un 202, el estado definitivo se recupera **sin crear un pedido nuevo**
+y sin exponer los de otras personas. Hace falta que la solicitud se haya creado con `customerId` (el cliente de ese teléfono).
+
+- **Reintentar el mismo `POST /orders`** con la misma `Idempotency-Key` y el mismo cuerpo devuelve la solicitud con su estado
+  **actual**, no el `pending` original. `202` mientras espera al local; `200` cuando ya es definitiva.
+- **`GET /late-order-requests/by-key/:idempotencyKey?phone=+591…`** (solo token de servicio) devuelve lo mismo sin reenviar el
+  carrito. Busca solo entre las solicitudes del servicio que llama y exige el teléfono del cliente dueño (se compara
+  normalizado: `+591…`, `591…` y con espacios son el mismo). **404** si no existe, es de otro servicio, es de otra persona o no
+  tiene cliente vinculado: no se revela si la clave existe. `400` si falta `phone`.
+
+```json
+{ "requestId": "…", "requestNumber": "SOL-000045", "status": "pending|accepted|rejected|expired",
+  "subtotalAmount": 45, "expiresAt": "…", "orderId": "…", "orderNumber": "ORD-0123" }
+```
+
+`orderId` y `orderNumber` solo vienen con `status: "accepted"` (se sigue el pedido con `GET /orders/:id`). Una pendiente que ya
+venció se informa como `expired`. No incluye nombre ni carrito. El cuerpo del 202 pendiente es el de siempre.
+
+- **Clave por servicio**: la `Idempotency-Key` es única por servicio (como en el resto de la API), no global; dos servicios con la
+  misma clave no se pisan (migración `1700000015000`, que también rellena las solicitudes existentes por canal).
+- **Contenido verificado**: la misma clave con **otro** carrito, forma de pago o ubicación es `409 idempotency_key_reused`; antes
+  devolvía la solicitud vieja en silencio. Las solicitudes anteriores a la migración no guardaron la huella y se comparan solo por
+  ubicación, como antes.
+- **Cambio de permisos**: `GET /late-order-requests` y `GET /late-order-requests/:id` ahora son **solo staff** (`admin`/`cashier`,
+  JWT). Antes los leía cualquier servicio con solo conocer el UUID, e incluían nombre y datos del cliente. Los servicios usan
+  `by-key`.
+
 ### 2.4 Delivery: pedir y adjuntar ubicación
 
 Al crear un pedido de delivery, apenas queda en `awaiting_location` el

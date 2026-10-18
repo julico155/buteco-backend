@@ -51,7 +51,7 @@ function createService(opts: { settings?: Record<string, unknown>; registerOpen:
   );
   const lateRequest = jest
     .spyOn(service as unknown as { createLateOrderRequest: () => Promise<unknown> }, 'createLateOrderRequest')
-    .mockResolvedValue({ requestId: 'late-1' });
+    .mockResolvedValue({ requestId: 'late-1', status: 'pending' });
   return { service, idempotency, cashRegister, lateRequest };
 }
 

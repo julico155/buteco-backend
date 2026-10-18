@@ -2,7 +2,9 @@ import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { Kysely, sql } from 'kysely';
 import { KYSELY } from '../database/database.module';
 import { Database, LateOrderRequestStatus } from '../database/types';
-import { DomainException, NotFoundDomainError } from '../common/exceptions/domain-exception';
+import { DomainException, NotFoundDomainError, ValidationError } from '../common/exceptions/domain-exception';
+import { normalizePhone } from '../customers/normalize-phone';
+import { LateOrderRequestAcceptedResponse, toLateRequestState } from './late-request-state';
 import { NotificationsOutService } from '../notifications-out/notifications-out.service';
 import { OrdersService } from '../orders/orders.service';
 import { CashRegisterService } from '../cash-register/cash-register.service';
@@ -61,6 +63,53 @@ export class LateOrderRequestsService {
       .executeTakeFirst();
     if (!row) throw new NotFoundDomainError('late_order_request', id);
     return toResponse(row);
+  }
+
+  /**
+   * M7A: recupera el estado definitivo de una solicitud (el 202 de `POST /orders`) a quien perdió la respuesta o recargó el
+   * menú. Se busca por la `Idempotency-Key` con la que se creó, DENTRO de los pedidos del servicio que llama, y solo se
+   * entrega si el teléfono pertenece al cliente de la solicitud. Cualquier otro caso (no existe, es de otro servicio, es de
+   * otro cliente o no tiene cliente vinculado) da el mismo 404: no se revela si la clave existe.
+   */
+  async findByKey(
+    apiClient: string,
+    idempotencyKey: string,
+    phone: string | undefined,
+  ): Promise<LateOrderRequestAcceptedResponse> {
+    if (!phone?.trim()) throw new ValidationError('phone es obligatorio.');
+    const notFound = () => new NotFoundDomainError('late_order_request', idempotencyKey);
+
+    const row = await this.db
+      .selectFrom('late_order_requests')
+      .selectAll()
+      .where('api_client', '=', apiClient)
+      .where('idempotency_key', '=', idempotencyKey)
+      .executeTakeFirst();
+    if (!row || !row.customer_id) throw notFound();
+
+    const customer = await this.db
+      .selectFrom('customers')
+      .select('phone')
+      .where('id', '=', row.customer_id)
+      .executeTakeFirst();
+    if (
+      !customer?.phone ||
+      normalizePhone(customer.phone, { assumeInternational: true }) !==
+        normalizePhone(phone, { assumeInternational: true })
+    ) {
+      throw notFound();
+    }
+
+    let orderNumber: string | null = null;
+    if (row.status === 'accepted' && row.order_id) {
+      const order = await this.db
+        .selectFrom('orders')
+        .select('order_number')
+        .where('id', '=', row.order_id)
+        .executeTakeFirst();
+      orderNumber = order?.order_number ?? null;
+    }
+    return toLateRequestState(row, orderNumber);
   }
 
   /** Cola de solicitudes para el dashboard — por defecto solo las 'pending'. */

@@ -8,7 +8,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ServiceOrStaffAuthGuard } from '../common/guards/service-or-staff-auth.guard';
+import { ServiceAuthGuard } from '../common/guards/service-auth.guard';
+import { ApiClient } from '../common/decorators/api-client.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -23,9 +24,26 @@ import { RejectLateOrderRequestDto } from './dto/reject-late-order-request.dto';
 export class LateOrderRequestsController {
   constructor(private readonly lateOrderRequests: LateOrderRequestsService) {}
 
-  /** Cola para el dashboard — por defecto solo 'pending'. */
+  /**
+   * M7A: estado definitivo de la solicitud (el 202 de `POST /orders`) por la `Idempotency-Key` con la que se creó.
+   * Solo servicio: busca dentro de las solicitudes de ESE servicio y exige el `phone` del cliente dueño; cualquier otro caso
+   * es 404. No devuelve nombre ni carrito, solo el estado (y el pedido, si fue aceptada).
+   */
+  @Get('by-key/:idempotencyKey')
+  @UseGuards(ServiceAuthGuard)
+  @ApiQuery({ name: 'phone', required: true, type: String })
+  findByKey(
+    @Param('idempotencyKey') idempotencyKey: string,
+    @Query('phone') phone: string | undefined,
+    @ApiClient() apiClient: string,
+  ) {
+    return this.lateOrderRequests.findByKey(apiClient, idempotencyKey, phone);
+  }
+
+  /** Cola para el dashboard — por defecto solo 'pending'. Solo staff: trae nombre y datos del cliente. */
   @Get()
-  @UseGuards(ServiceOrStaffAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'cashier')
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'offset', required: false, type: Number })
@@ -41,8 +59,10 @@ export class LateOrderRequestsController {
     });
   }
 
+  /** Solo staff: antes lo leía cualquier servicio conociendo el UUID. Los servicios usan `by-key`. */
   @Get(':id')
-  @UseGuards(ServiceOrStaffAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'cashier')
   findById(@Param('id', ParseUUIDPipe) id: string) {
     return this.lateOrderRequests.findById(id);
   }

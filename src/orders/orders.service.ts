@@ -23,7 +23,12 @@ import {
   StoreClosedError,
   ValidationError,
 } from '../common/exceptions/domain-exception';
-import { IdempotencyService } from '../common/idempotency/idempotency.service';
+import { hashRequestBody, IdempotencyService } from '../common/idempotency/idempotency.service';
+import {
+  httpStatusForLateRequest,
+  LateOrderRequestAcceptedResponse,
+  toLateRequestState,
+} from '../late-order-requests/late-request-state';
 import {
   applyOutOfHoursPolicy,
   businessDayKey,
@@ -122,17 +127,15 @@ export interface OrderResponse {
   promotions: OrderPromotionResponse[];
 }
 
-export interface LateOrderRequestAcceptedResponse {
-  requestId: string;
-  requestNumber: string;
-  status: 'pending';
-  subtotalAmount: number;
-  expiresAt: string;
-}
+export type { LateOrderRequestAcceptedResponse };
 
+/**
+ * El pedido fuera de horario (solicitud) responde 202 mientras espera al local y 200 cuando ya es definitiva (reintento con
+ * la misma `Idempotency-Key`); el cuerpo es siempre el mismo estado, ver `late-request-state.ts`.
+ */
 export type CreateOrderOutcome =
   | { httpStatus: 200 | 201; body: OrderResponse }
-  | { httpStatus: 202; body: LateOrderRequestAcceptedResponse };
+  | { httpStatus: 200 | 202; body: LateOrderRequestAcceptedResponse };
 
 export function buildLateOrderTelegramAction(action: 'accept' | 'reject', id: string): string {
   return `late_order.${action}:${id}`;
@@ -389,8 +392,8 @@ export class OrdersService {
     }
 
     if (gate.gate === 'late_review') {
-      const body = await this.createLateOrderRequest(dto, idempotencyKey, now, deliveryLocation);
-      return { httpStatus: 202, body };
+      const body = await this.createLateOrderRequest(dto, idempotencyKey, now, deliveryLocation, apiClient);
+      return { httpStatus: httpStatusForLateRequest(body.status), body };
     }
 
     const outcome = await this.idempotency.run({
@@ -1156,15 +1159,20 @@ export class OrdersService {
     idempotencyKey: string,
     now: Date,
     deliveryLocation: DeliveryLocationInput | null,
+    apiClient: string,
   ): Promise<LateOrderRequestAcceptedResponse> {
+    // La clave es única POR servicio (como en `idempotency_keys`): dos servicios con la misma clave no se pisan. La huella
+    // del cuerpo rechaza con 409 un reintento con otro contenido.
+    const requestHash = hashRequestBody(idempotencyBody(dto));
     const existing = await this.db
       .selectFrom('late_order_requests')
       .selectAll()
+      .where('api_client', '=', apiClient)
       .where('idempotency_key', '=', idempotencyKey)
       .executeTakeFirst();
     if (existing) {
-      assertSameStoredLocation(existing, deliveryLocation, idempotencyKey);
-      return toLateOrderRequestAcceptedResponse(existing);
+      assertSameStoredRequest(existing, requestHash, deliveryLocation, idempotencyKey);
+      return this.lateRequestState(existing);
     }
 
     const items = dto.items;
@@ -1247,9 +1255,11 @@ export class OrdersService {
           ? { delivery_latitude: deliveryLocation.latitude, delivery_longitude: deliveryLocation.longitude }
           : {}),
         idempotency_key: idempotencyKey,
+        api_client: apiClient,
+        request_hash: requestHash,
         expires_at: expiresAt,
       })
-      .onConflict((oc) => oc.column('idempotency_key').doNothing())
+      .onConflict((oc) => oc.columns(['api_client', 'idempotency_key']).doNothing())
       .returningAll()
       .executeTakeFirst();
 
@@ -1273,16 +1283,38 @@ export class OrdersService {
           `No se pudo avisar al mostrador sobre ${inserted.id}: ${(error as Error).message}`,
         );
       }
-      return toLateOrderRequestAcceptedResponse(inserted);
+      return this.lateRequestState(inserted);
     }
 
     const winner = await this.db
       .selectFrom('late_order_requests')
       .selectAll()
+      .where('api_client', '=', apiClient)
       .where('idempotency_key', '=', idempotencyKey)
       .executeTakeFirstOrThrow();
-    assertSameStoredLocation(winner, deliveryLocation, idempotencyKey);
-    return toLateOrderRequestAcceptedResponse(winner);
+    assertSameStoredRequest(winner, requestHash, deliveryLocation, idempotencyKey);
+    return this.lateRequestState(winner);
+  }
+
+  /** Estado actual de la solicitud (un reintento puede llegar cuando el local ya la decidió): con el número del pedido si ya es uno. */
+  private async lateRequestState(row: {
+    id: string;
+    request_number: string;
+    status: string;
+    subtotal_amount: string;
+    expires_at: Date | string;
+    order_id: string | null;
+  }): Promise<LateOrderRequestAcceptedResponse> {
+    let orderNumber: string | null = null;
+    if (row.status === 'accepted' && row.order_id) {
+      const order = await this.db
+        .selectFrom('orders')
+        .select('order_number')
+        .where('id', '=', row.order_id)
+        .executeTakeFirst();
+      orderNumber = order?.order_number ?? null;
+    }
+    return toLateRequestState(row, orderNumber);
   }
 
   async requestLocation(orderId: string): Promise<void> {
@@ -1993,31 +2025,25 @@ export class OrdersService {
   }
 }
 
-function toLateOrderRequestAcceptedResponse(row: {
-  id: string;
-  request_number: string;
-  subtotal_amount: string;
-  expires_at: Date | string;
-}): LateOrderRequestAcceptedResponse {
-  return {
-    requestId: row.id,
-    requestNumber: row.request_number,
-    status: 'pending',
-    subtotalAmount: Number(row.subtotal_amount),
-    expiresAt: new Date(row.expires_at).toISOString(),
-  };
-}
-
-/** Clave normalizada (orden-insensible) para comparar la selección de complementos excluidos de dos líneas. */
 /**
- * Un reintento con la misma `Idempotency-Key` NO puede cambiar la ubicación de una solicitud ya guardada: o trae la misma o
- * es `409 idempotency_key_reused` (igual que en la ruta normal, donde la ubicación forma parte del hash del cuerpo).
+ * Un reintento con la misma `Idempotency-Key` solo es el mismo pedido si trae el mismo cuerpo: si no, es
+ * `409 idempotency_key_reused` (igual que en la ruta normal). Las solicitudes anteriores a la migración 1700000015000 no
+ * guardaron la huella (`request_hash` nulo): ahí solo se puede comparar la ubicación, como antes.
  */
-function assertSameStoredLocation(
-  row: { delivery_latitude?: number | null; delivery_longitude?: number | null },
+function assertSameStoredRequest(
+  row: {
+    request_hash?: string | null;
+    delivery_latitude?: number | null;
+    delivery_longitude?: number | null;
+  },
+  requestHash: string,
   incoming: DeliveryLocationInput | null,
   idempotencyKey: string,
 ): void {
+  if (row.request_hash != null) {
+    if (row.request_hash !== requestHash) throw new IdempotencyKeyReusedError(idempotencyKey);
+    return;
+  }
   const stored =
     row.delivery_latitude != null && row.delivery_longitude != null
       ? { latitude: row.delivery_latitude, longitude: row.delivery_longitude }
@@ -2025,6 +2051,7 @@ function assertSameStoredLocation(
   if (!sameDeliveryLocation(stored, incoming)) throw new IdempotencyKeyReusedError(idempotencyKey);
 }
 
+/** Clave normalizada (orden-insensible) para comparar la selección de complementos excluidos de dos líneas. */
 function complementsKey(excluded: string[] | undefined): string {
   return JSON.stringify([...(excluded ?? [])].sort());
 }
