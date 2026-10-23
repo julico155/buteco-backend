@@ -21,7 +21,10 @@ npm run migrate:up && npm run start:prod
 
 Probado simulando una imagen sin dependencias de desarrollo sobre una base ya
 migrada hasta la 8: aplicó las 9 a 16, la app arrancó y el login respondió; un
-segundo redeploy no hizo nada; y una migración rota frenó el arranque.
+segundo redeploy no hizo nada; y una migración rota frenó el arranque. También se
+probó con una base **con datos** (usuarios de todos los roles, pedidos en cada
+estado, solicitudes fuera de horario de cada canal): todas las migraciones
+aplicaron, no se perdió ninguna fila y los pedidos viejos quedaron intactos.
 
 ## Configuración en Dokploy
 
@@ -64,7 +67,14 @@ El resto está comentado en [.env.example](../.env.example).
    - `1700000011000_weekly-schedule.sql`: **sobrescribe** el horario de atención
      con el de Buteco (martes a domingo, 12:00 a 23:00, delivery hasta 22:50,
      recojo hasta 22:30). Si la base ya tenía otro horario cargado, se pierde.
-4. **Si la base ya tenía aplicada una versión anterior de `1700000016000`**
+4. **Pedidos viejos que quedaron abiertos.** A los pocos minutos del primer
+   arranque, el cierre automático (cada 10 min) marca como entregados o
+   despachados los pedidos `confirmed`, `preparing` o `ready` con más de 12 h
+   que estén pagados **o sean en efectivo**, aunque nadie los haya cerrado. Si hay
+   pedidos de prueba o viejos sin cerrar que no querés que cambien, ciérralos o
+   cancélalos a mano antes. Los QR sin pagar los cancela el vencimiento de 20 min
+   (como siempre). Los pedidos ya cerrados o cancelados no cambian.
+5. **Si la base ya tenía aplicada una versión anterior de `1700000016000`**
    (la de la carta con `serves_label_snapshot` y `prep_minutes_snapshot`): esa
    migración no se vuelve a correr, así que esas dos columnas de `order_items`
    quedan de más. Son nulables y el código ya no las usa; se pueden borrar a
