@@ -9,6 +9,27 @@ import { OrderReplacementService } from './order-replacement.service';
 import { CreateOrderReplacementDto } from './dto/create-order-replacement.dto';
 import { AppendOrderNoteDto } from './dto/append-order-note.dto';
 
+import {
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiExtraModels,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  getSchemaPath,
+} from '@nestjs/swagger';
+import {
+  AppendNoteNoOrder,
+  AppendNoteNotAllowed,
+  AppendNoteSaved,
+  ReplaceableNoOrder,
+  ReplaceableNotReplaceable,
+  ReplaceableOrderFound,
+  ReplacementDone,
+  ReplacementNotFound,
+  ReplacementNotReplaceable,
+  ReplacementStaleOrder,
+} from './dto/replacement-response.dto';
+
 /**
  * api_client -> canal. "Modificar mi pedido" existe para los 2 canales que
  * tienen cliente final propio (WhatsApp y el checkout web) — nunca POS, que
@@ -39,6 +60,8 @@ export class OrderReplacementController {
   // esperados del flujo (no hay pedido, no es modificable...), no errores HTTP.
   @Get('orders/replaceable')
   @HttpCode(200)
+  @ApiExtraModels(ReplaceableNoOrder, ReplaceableNotReplaceable, ReplaceableOrderFound)
+  @ApiOkResponse({ description: 'El desenlace viene en `result`.', schema: { oneOf: [{ $ref: getSchemaPath(ReplaceableNoOrder) }, { $ref: getSchemaPath(ReplaceableNotReplaceable) }, { $ref: getSchemaPath(ReplaceableOrderFound) }] } })
   replaceable(@Query('customerPhone') customerPhone: string, @ApiClient() apiClient: string) {
     const channel = this.resolveChannel(apiClient);
     if (!customerPhone) throw new ValidationError('Falta el query param customerPhone.');
@@ -47,12 +70,21 @@ export class OrderReplacementController {
 
   @Post('orders/notes')
   @HttpCode(200)
+  @ApiExtraModels(AppendNoteSaved, AppendNoteNoOrder, AppendNoteNotAllowed)
+  @ApiOkResponse({ description: 'El desenlace viene en `result`.', schema: { oneOf: [{ $ref: getSchemaPath(AppendNoteSaved) }, { $ref: getSchemaPath(AppendNoteNoOrder) }, { $ref: getSchemaPath(AppendNoteNotAllowed) }] } })
   appendNote(@Body() dto: AppendOrderNoteDto, @ApiClient() apiClient: string) {
     const channel = this.resolveChannel(apiClient);
     return this.replacement.appendNote(dto, apiClient, channel);
   }
 
   @Post('orders/replacements')
+  @ApiExtraModels(ReplacementDone, ReplacementNotFound, ReplacementStaleOrder, ReplacementNotReplaceable)
+  @ApiCreatedResponse({ type: ReplacementDone, description: 'Reemplazado.' })
+  @ApiNotFoundResponse({ type: ReplacementNotFound })
+  @ApiConflictResponse({
+    description: 'El pedido quedó viejo o ya no se puede reemplazar.',
+    schema: { oneOf: [{ $ref: getSchemaPath(ReplacementStaleOrder) }, { $ref: getSchemaPath(ReplacementNotReplaceable) }] },
+  })
   async createReplacement(
     @Body() dto: CreateOrderReplacementDto,
     @IdempotencyKey() idempotencyKey: string,

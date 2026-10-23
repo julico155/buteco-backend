@@ -9,6 +9,9 @@ import { CashRegisterService } from './cash-register.service';
 import { OpenCashRegisterDto } from './dto/open-cash-register.dto';
 import { CloseCashRegisterDto } from './dto/close-cash-register.dto';
 
+import { ApiExtraModels, ApiOkResponse, getSchemaPath } from '@nestjs/swagger';
+import { CashRegisterSessionResponse } from './dto/cash-register-response.dto';
+
 @Controller('cash-register/sessions')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class CashRegisterController {
@@ -29,6 +32,11 @@ export class CashRegisterController {
   /** Cualquier rol de staff excepto delivery puede consultar si hay caja abierta (ej. para habilitar el cobro en el POS). */
   @Get('current')
   @Roles('admin', 'cashier')
+  @ApiExtraModels(CashRegisterSessionResponse)
+  @ApiOkResponse({
+    description: 'La caja abierta, o cuerpo vacío si no hay ninguna.',
+    schema: { nullable: true, allOf: [{ $ref: getSchemaPath(CashRegisterSessionResponse) }] },
+  })
   getCurrent() {
     return this.cashRegister.getCurrent();
   }

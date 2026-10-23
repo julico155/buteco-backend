@@ -30,6 +30,9 @@ import {
   UpdateReservationSettingsDto,
 } from './dto/reservation.dto';
 
+import { ApiOkResponse } from '@nestjs/swagger';
+import { PublicReservationResponse, StaffReservationResponse } from './dto/tables-response.dto';
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const STATUSES: ReservationStatus[] = [
   'pending_payment',
@@ -86,6 +89,7 @@ export class ReservationsController {
   @Post('reservations/:id/cancel')
   @UseGuards(ServiceOrStaffAuthGuard)
   @HttpCode(200)
+  @ApiOkResponse({ type: PublicReservationResponse })
   cancelPublic(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CancelReservationDto,
@@ -123,6 +127,7 @@ export class ReservationsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'cashier')
   @HttpCode(200)
+  @ApiOkResponse({ type: StaffReservationResponse })
   cancelStaff(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CancelReservationDto,

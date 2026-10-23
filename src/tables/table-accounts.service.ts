@@ -21,6 +21,9 @@ import { itemLineKey } from '../orders/order-item-options';
 import { AddRoundDto, CloseAccountDto, OpenAccountDto } from './dto/account.dto';
 import { isUniqueViolation } from './tables.service';
 
+import { LineVoidInfo, AccountRound, TableAccountResponse } from './dto/tables-response.dto';
+export { LineVoidInfo, AccountRound, TableAccountResponse };
+
 /**
  * Canal con el que quedan las cuentas de mesa: las abre el cajero desde el POS.
  * También es el scope de idempotencia de las rondas.
@@ -29,58 +32,6 @@ const ACCOUNT_CHANNEL = 'pos' as const;
 
 /** Forma de pago mientras la cuenta está abierta: todavía no se eligió. */
 const PLACEHOLDER_PAYMENT_METHOD: OrderPaymentMethod = 'cash';
-
-/** Una línea anulada se sigue mostrando, marcada, pero no suma al total ni sale en la comanda. */
-export interface LineVoidInfo {
-  voided: boolean;
-  voidedAt: string | null;
-  voidedBy: string | null;
-  voidReason: string | null;
-}
-
-export interface AccountRound {
-  roundNumber: number;
-  addedAt: string;
-  items: ({
-    id: string;
-    productName: string;
-    quantity: number;
-    subtotal: number;
-    excludedComplements: string[];
-    /** Solo cuando la línea tiene opciones elegidas (p. ej. las carnes de una tabla). */
-    selectedOptions?: { groupName: string; optionName: string; priceDelta: number }[];
-  } & LineVoidInfo)[];
-  promotions: ({
-    id: string;
-    name: string;
-    comboQuantity: number;
-    subtotal: number;
-    components: OrderPromotionComponentSnapshot[];
-  } & LineVoidInfo)[];
-}
-
-export interface TableAccountResponse {
-  orderId: string;
-  orderNumber: string;
-  tableId: string;
-  tableLabel: string;
-  status: OrderStatus;
-  paymentStatus: string;
-  paymentMethod: string;
-  /** Consumo de la cuenta, antes de descontar el adelanto de la reserva. */
-  grossAmount: number;
-  /** Adelanto de reserva que se descuenta (0 si la mesa no venía de una reserva). */
-  depositCreditAmount: number;
-  /** Lo que se cobra: consumo menos adelanto. Es el monto que ven QR, efectivo y split. */
-  totalAmount: number;
-  openedAt: string;
-  billRequestedAt: string | null;
-  /** Nota del pedido (para la comanda). */
-  notes: string | null;
-  /** Ronda más reciente: la que el POS imprime al sumar consumo. 0 si todavía no hay consumo. */
-  latestRoundNumber: number;
-  rounds: AccountRound[];
-}
 
 interface LockedTable {
   id: string;

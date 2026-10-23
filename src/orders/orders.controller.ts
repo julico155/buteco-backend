@@ -32,6 +32,10 @@ import { KitchenNoteDto } from './dto/kitchen-note.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { SetSplitPaymentDto } from './dto/set-split-payment.dto';
 
+import { ApiAcceptedResponse, ApiCreatedResponse, ApiExtraModels, ApiOkResponse, getSchemaPath } from '@nestjs/swagger';
+import { OrderResponse } from './dto/order-response.dto';
+import { LateOrderRequestAcceptedResponse } from '../late-order-requests/dto/late-order-request-response.dto';
+
 @Controller()
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
@@ -86,6 +90,22 @@ export class OrdersController {
 
   @Post('orders')
   @UseGuards(ServiceOrStaffAuthGuard)
+  @ApiExtraModels(OrderResponse, LateOrderRequestAcceptedResponse)
+  @ApiCreatedResponse({ type: OrderResponse, description: 'Pedido creado.' })
+  @ApiAcceptedResponse({
+    type: LateOrderRequestAcceptedResponse,
+    description: 'Fuera de horario: queda una solicitud esperando la decisión del local.',
+  })
+  @ApiOkResponse({
+    description:
+      'Reintento con la misma Idempotency-Key: el mismo pedido, o el estado actual de la solicitud fuera de horario.',
+    schema: {
+      oneOf: [
+        { $ref: getSchemaPath(OrderResponse) },
+        { $ref: getSchemaPath(LateOrderRequestAcceptedResponse) },
+      ],
+    },
+  })
   async create(
     @Body() dto: CreateOrderDto,
     @IdempotencyKey() idempotencyKey: string,

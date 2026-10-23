@@ -8,25 +8,15 @@ import { DomainException, NotFoundDomainError } from '../common/exceptions/domai
 import { LoginDto } from './dto/login.dto';
 import { CreateStaffUserDto } from './dto/create-staff-user.dto';
 
+import { LoginResponse, StaffUserResponse } from './dto/auth-response.dto';
+export { LoginResponse, StaffUserResponse };
+
 const BCRYPT_ROUNDS = 10;
 
 export interface JwtPayload {
   sub: string;
   username: string;
   role: DashboardUserRole;
-}
-
-export interface LoginResponse {
-  accessToken: string;
-  user: { id: string; username: string; role: DashboardUserRole };
-}
-
-export interface StaffUserResponse {
-  id: string;
-  username: string;
-  role: DashboardUserRole;
-  isActive: boolean;
-  createdAt: string;
 }
 
 function isUniqueViolation(error: unknown): boolean {

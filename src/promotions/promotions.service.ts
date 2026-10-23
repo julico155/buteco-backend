@@ -6,35 +6,13 @@ import { DomainException, NotFoundDomainError } from '../common/exceptions/domai
 import { CreatePromotionDto } from './dto/create-promotion.dto';
 import { UpdatePromotionDto } from './dto/update-promotion.dto';
 
+import { PromotionResponse, PromotionItemResponse, PromotionStatus } from './dto/promotion-response.dto';
+export { PromotionResponse, PromotionItemResponse, PromotionStatus };
+
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505';
 }
 
-export type PromotionStatus =
-  'activa' | 'agotada' | 'sin_ahorro' | 'inactiva' | 'archivada' | 'programada' | 'expirada';
-
-export interface PromotionItemResponse {
-  productId: string;
-  productName: string;
-  quantity: number;
-  unitPrice: number;
-}
-
-export interface PromotionResponse {
-  id: string;
-  name: string;
-  description: string | null;
-  promoPrice: number;
-  isActive: boolean;
-  archivedAt: string | null;
-  startsAt: string | null;
-  endsAt: string | null;
-  sortOrder: number;
-  imageUrl: string | null;
-  revision: number;
-  status: PromotionStatus;
-  items: PromotionItemResponse[];
-}
 
 export interface PromotionRow {
   id: string;

@@ -24,6 +24,8 @@ import { SetAvailabilityDto } from './dto/set-availability.dto';
 import { UploadProductImageDto } from './dto/upload-product-image.dto';
 import { ReplaceProductOptionGroupsDto } from './dto/product-option-groups.dto';
 
+import { ApiOkResponse, ApiProduces } from '@nestjs/swagger';
+
 @Controller('products')
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
@@ -83,6 +85,11 @@ export class ProductsController {
   /** Streaming autenticado — nunca una URL directa al bucket. */
   @Get(':id/image')
   @UseGuards(ServiceOrStaffAuthGuard)
+  @ApiProduces('image/png', 'image/jpeg', 'image/webp')
+  @ApiOkResponse({
+    description: 'La imagen.',
+    content: { 'image/*': { schema: { type: 'string', format: 'binary' } } },
+  })
   async getImage(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
     const { bytes, mimeType } = await this.products.getImage(id);
     res.setHeader('content-type', mimeType);

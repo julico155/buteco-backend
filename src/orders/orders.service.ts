@@ -70,77 +70,8 @@ import {
   toSelectedOptionResponse,
 } from './order-item-options';
 
-export interface OrderItemResponse {
-  productId: string;
-  productCodeSnapshot: string;
-  productNameSnapshot: string;
-  /** Precio unitario efectivo: base del producto + Σ priceDelta de las opciones elegidas. */
-  unitPriceSnapshot: number;
-  quantity: number;
-  subtotal: number;
-  excludedComplements: string[];
-  /** Solo cuando la línea tiene opciones elegidas; los productos sin grupos no llevan la clave. */
-  selectedOptions?: OrderItemSelectedOptionResponse[];
-  /** Ronda de la cuenta de mesa en la que se agregó (1 en pedidos normales). */
-  roundNumber: number;
-}
-
-export interface OrderPromotionResponse {
-  promotionId: string | null;
-  promotionNameSnapshot: string;
-  promoPriceSnapshot: number;
-  comboQuantity: number;
-  subtotal: number;
-  componentsSnapshot: OrderPromotionComponentSnapshot[];
-  roundNumber: number;
-}
-
-export interface OrderResponse {
-  id: string;
-  orderNumber: string;
-  customerId: string | null;
-  channel: string;
-  customerName: string;
-  deliveryType: string;
-  /** Mesa de la cuenta (solo dine_in abierto desde una mesa). */
-  tableId: string | null;
-  /** "Pidió la cuenta" (cuenta de mesa). */
-  billRequestedAt: string | null;
-  paymentMethod: string;
-  /** Solo delivery pagado por QR: 'food_only' (el repartidor cobra el envío) o 'food_and_delivery' (el QR cubre todo). */
-  qrScope: QrScope | null;
-  paymentStatus: string;
-  status: string;
-  notes: string | null;
-  subtotalAmount: number;
-  deliveryBaseAmount: number;
-  deliverySurchargeAmount: number;
-  totalAmount: number;
-  deliveryQuoteStatus: string | null;
-  deliveryDistanceMeters: number | null;
-  cashConfirmedAt: string | null;
-  /** Solo con paymentMethod='split'. */
-  splitCashAmount: number | null;
-  splitQrAmount: number | null;
-  splitCashConfirmedAt: string | null;
-  statusUpdatedBy: string | null;
-  /** Repartidor asignado (solo pedidos de delivery ya aceptados). */
-  deliveryDriverName: string | null;
-  deliveryAcceptedAt: string | null;
-  deliveredAt: string | null;
-  createdAt: string;
-  /**
-   * Última escritura de la fila, no solo cambios de status — también se
-   * toca al agregar una nota (`addNote`), adjuntar ubicación
-   * (`applyLocationLocked`) o armar un split (`setSplitPayment`). Para "hace
-   * cuánto cambió de status" de verdad, usar junto con `statusUpdatedBy`
-   * (ambos se escriben siempre juntos en `updateStatus`) y no solo.
-   */
-  updatedAt: string;
-  items: OrderItemResponse[];
-  /** Combos vendidos. `items` solo trae los productos sueltos, así que sin esto el ticket y el tablero de cocina quedan incompletos. */
-  promotions: OrderPromotionResponse[];
-}
+import { OrderItemResponse, OrderPromotionResponse, OrderResponse } from './dto/order-response.dto';
+export { OrderItemResponse, OrderPromotionResponse, OrderResponse };
 
 export type { LateOrderRequestAcceptedResponse };
 

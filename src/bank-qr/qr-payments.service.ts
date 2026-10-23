@@ -13,27 +13,10 @@ import { decideUnappliedPayment } from './unapplied-payment';
 import { withAmountCaption } from './qr-image-caption';
 import { qrChargeAmount } from '../payment-options/payment-options.rules';
 
+import { QrChargeResponse, UnappliedPaymentResponse } from './dto/bank-qr-response.dto';
+export { QrChargeResponse, UnappliedPaymentResponse };
+
 const QR_DUE_DATE_MARGIN_DAYS = 2;
-
-export interface QrChargeResponse {
-  orderId: string;
-  status: BankQrChargeStatus;
-  qrImageUrl: string;
-  dueDate: string;
-}
-
-/** Un pago que el banco cobró y que ninguna caja recibió — espera decisión humana. */
-export interface UnappliedPaymentResponse {
-  id: string;
-  orderId: string;
-  orderNumber: string;
-  customerName: string;
-  customerPhone: string | null;
-  qrId: string;
-  amount: number;
-  paidDetectedAt: string | null;
-  orderPaymentStatus: string;
-}
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505';

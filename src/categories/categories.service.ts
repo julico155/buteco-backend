@@ -6,12 +6,8 @@ import { NotFoundDomainError } from '../common/exceptions/domain-exception';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 
-export interface CategoryResponse {
-  id: string;
-  name: string;
-  sortOrder: number;
-  isActive: boolean;
-}
+import { CategoryResponse } from './dto/category-response.dto';
+export { CategoryResponse };
 
 @Injectable()
 export class CategoriesService {

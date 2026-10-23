@@ -5,21 +5,13 @@ import {
 import { localWeekdayAndMinute } from '../common/time/weekly-schedule';
 import { OrderItemSelectedOption } from '../database/types';
 
+import { OrderItemSelectedOptionResponse } from './dto/order-response.dto';
+export { OrderItemSelectedOptionResponse };
+
 /** Lo que manda el cliente por opción elegida: solo ids, nunca precios. */
 export interface SelectedOptionInput {
   groupId: string;
   optionId: string;
-}
-
-/** Una opción elegida tal como la ve el cliente en el pedido (sin banderas internas). */
-export interface OrderItemSelectedOptionResponse {
-  groupId: string;
-  optionId: string;
-  groupCode: string;
-  groupName: string;
-  optionCode: string;
-  optionName: string;
-  priceDelta: number;
 }
 
 /** Sin `showInNotice` (bandera interna del aviso de delivery). */

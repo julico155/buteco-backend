@@ -29,50 +29,11 @@ import {
 import { isUniqueViolation } from './tables.service';
 import { TableAccountsService, TableAccountResponse } from './table-accounts.service';
 
+import { ReservationSettingsView, PublicReservationResponse, StaffReservationResponse, AvailabilityResponse } from './dto/tables-response.dto';
+export { ReservationSettingsView, PublicReservationResponse, StaffReservationResponse, AvailabilityResponse };
+
 /** Estados que bloquean una mesa en el calendario. */
 const BLOCKING_STATUSES: ReservationStatus[] = ['pending_payment', 'confirmed', 'seated'];
-
-export interface ReservationSettingsView extends ReservationTimingSettings {
-  enabled: boolean;
-  depositAmount: number;
-  paymentTtlMinutes: number;
-}
-
-/** Lo que ve el cliente: nunca la mesa. */
-export interface PublicReservationResponse {
-  id: string;
-  reservationNumber: string;
-  status: ReservationStatus;
-  depositStatus: ReservationDepositStatus;
-  partySize: number;
-  customerName: string;
-  startsAt: string;
-  /** Hasta cuándo se puede pagar (pending_payment) o llegar (confirmed). */
-  expiresAt: string;
-  depositAmount: number;
-  /** Pedido con el QR del adelanto: la imagen sale de GET /orders/:id/qr-image. */
-  depositOrderId: string | null;
-  notes: string | null;
-}
-
-export interface StaffReservationResponse extends PublicReservationResponse {
-  customerPhone: string;
-  tableId: string;
-  tableLabel: string;
-  tableSeats: number;
-  blocksUntil: string;
-  accountOrderId: string | null;
-  cancelReason: string | null;
-}
-
-export interface AvailabilityResponse {
-  date: string;
-  partySize: number;
-  maxPartySize: number;
-  depositAmount: number;
-  paymentTtlMinutes: number;
-  slots: { startsAt: string; time: string }[];
-}
 
 type ReservationRow = {
   id: string;

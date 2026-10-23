@@ -1,3 +1,6 @@
+
+import { LateOrderRequestAcceptedResponse } from './dto/late-order-request-response.dto';
+export { LateOrderRequestAcceptedResponse };
 /**
  * Estado de una solicitud fuera de horario tal como lo ve el servicio que la creó (agente / menú web): lo que devuelven el
  * 202 de `POST /orders`, su reintento con la misma `Idempotency-Key` y `GET /late-order-requests/by-key/:key`.
@@ -6,17 +9,6 @@
  * que se convirtió (`orderId` / `orderNumber`) para seguirlo con `GET /orders/:id`.
  */
 export type LateRequestState = 'pending' | 'accepted' | 'rejected' | 'expired';
-
-export interface LateOrderRequestAcceptedResponse {
-  requestId: string;
-  requestNumber: string;
-  status: LateRequestState;
-  subtotalAmount: number;
-  expiresAt: string;
-  /** Solo cuando `status` es `accepted`: el pedido en que se convirtió. Ausentes en cualquier otro estado (el 202 pendiente es el de siempre). */
-  orderId?: string;
-  orderNumber?: string;
-}
 
 export function toLateRequestState(
   row: {

@@ -7,50 +7,8 @@ import { CreateFloorDto, UpdateFloorDto } from './dto/floor.dto';
 import { CreateTableDto, SaveLayoutDto, UpdateTableDto } from './dto/table.dto';
 import { deriveTableState, TableState } from './table-state';
 
-export interface FloorResponse {
-  id: string;
-  name: string;
-  sortOrder: number;
-  isActive: boolean;
-}
-
-export interface TableAccountSummary {
-  orderId: string;
-  orderNumber: string;
-  status: OrderStatus;
-  totalAmount: number;
-  itemsCount: number;
-  openedAt: string;
-  billRequestedAt: string | null;
-}
-
-/** Reserva vigente sobre la mesa (la que la deja "reservada" en el plano). */
-export interface TableReservationSummary {
-  reservationId: string;
-  reservationNumber: string;
-  customerName: string;
-  partySize: number;
-  startsAt: string;
-  status: string;
-}
-
-export interface TableResponse {
-  id: string;
-  floorId: string;
-  label: string;
-  seats: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  shape: TableShape;
-  isActive: boolean;
-  /** Deducido de la cuenta viva; nunca se guarda. */
-  state: TableState;
-  account: TableAccountSummary | null;
-  reservation: TableReservationSummary | null;
-}
+import { FloorResponse, TableAccountSummary, TableReservationSummary, TableResponse } from './dto/tables-response.dto';
+export { FloorResponse, TableAccountSummary, TableReservationSummary, TableResponse };
 
 interface TableRow {
   id: string;

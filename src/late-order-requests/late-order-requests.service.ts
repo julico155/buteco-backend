@@ -9,17 +9,8 @@ import { NotificationsOutService } from '../notifications-out/notifications-out.
 import { OrdersService } from '../orders/orders.service';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 
-export interface LateOrderRequestResponse {
-  id: string;
-  requestNumber: string;
-  customerId: string | null;
-  customerName: string;
-  status: string;
-  subtotalAmount: number;
-  requestedAt: string;
-  expiresAt: string;
-  orderId: string | null;
-}
+import { LateOrderRequestResponse } from './dto/late-order-request-response.dto';
+export { LateOrderRequestResponse };
 
 type AcceptOutcome =
   | { outcome: 'not_found' }

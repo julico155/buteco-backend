@@ -11,21 +11,11 @@ import { NotificationsOutService } from '../notifications-out/notifications-out.
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { DeliveryNoticesService } from '../delivery-notices/delivery-notices.service';
 
-export interface PaymentAttemptResponse {
-  id: string;
-  orderId: string;
-  customerId: string | null;
-  openedAt: string;
-  openedAs: string;
-  reviewStatus: PaymentAttemptReviewStatus;
-  reviewedAt: string | null;
-}
+import { PaymentAttemptResponse } from './dto/payment-attempt-response.dto';
+import { DecidePaymentAttemptResult } from './dto/payment-attempt-response.dto';
+export { DecidePaymentAttemptResult };
 
-export interface DecidePaymentAttemptResult {
-  attempt: PaymentAttemptResponse;
-  /** true solo si ESTA llamada movió pending_review -> decision (invariante 5). */
-  won: boolean;
-}
+export { PaymentAttemptResponse };
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505';

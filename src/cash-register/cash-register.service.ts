@@ -5,22 +5,8 @@ import { CashRegisterSessionStatus, Database } from '../database/types';
 import { DomainException, NotFoundDomainError } from '../common/exceptions/domain-exception';
 import { QR_CHARGE_AMOUNT_SQL } from '../payment-options/payment-options.rules';
 
-export interface CashRegisterSessionResponse {
-  id: string;
-  status: CashRegisterSessionStatus;
-  openedAt: string;
-  openedBy: string;
-  openingAmount: number;
-  closedAt: string | null;
-  closedBy: string | null;
-  countedCashAmount: number | null;
-  expectedCashAmount: number | null;
-  cashDifference: number | null;
-  totalCashSalesAmount: number | null;
-  totalQrSalesAmount: number | null;
-  totalSalesAmount: number | null;
-  notes: string | null;
-}
+import { CashRegisterSessionResponse } from './dto/cash-register-response.dto';
+export { CashRegisterSessionResponse };
 
 /**
  * Totales de la caja abierta calculados al vuelo, para que el POS muestre

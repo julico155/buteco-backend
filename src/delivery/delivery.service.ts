@@ -23,29 +23,8 @@ import { DISTANCE_SERVICE, DistanceService } from './distance/distance.service';
 import { QuoteDeliveryDto } from './dto/quote-delivery.dto';
 import { composeStandaloneQuote } from './standalone-quote';
 
-export interface StandaloneQuoteResponse {
-  id: string;
-  status: 'quoted' | 'manual_quote' | 'failed';
-  distanceMeters: number | null;
-  /** Tarifa de la banda (sin recargo). */
-  feeAmount: number | null;
-  /** Recargo por lluvia vigente al cotizar (0 si no hay). null si no hubo tarifa automática. */
-  surchargeAmount: number | null;
-  /** feeAmount + surchargeAmount: el monto final real de delivery. null si no hubo tarifa automática. */
-  totalAmount: number | null;
-  errorCode: string | null;
-}
-
-export interface OrderQuoteResponse {
-  result: 'applied' | 'already_applied' | 'pending_manual';
-  orderId: string;
-  deliveryDistanceMeters: number | null;
-  deliveryBaseAmount: number | null;
-  deliverySurchargeAmount: number | null;
-  totalAmount: number | null;
-  status: string;
-  deliveryQuoteStatus: string | null;
-}
+import { StandaloneQuoteResponse, OrderQuoteResponse } from './dto/delivery-response.dto';
+export { StandaloneQuoteResponse, OrderQuoteResponse };
 
 /**
  * Cotización de delivery. Portado de apply_delivery_quote_v3 /

@@ -19,66 +19,11 @@ import {
   ProductImageStorage,
 } from './storage/product-image-storage';
 
+import { ProductComplementResponse, ProductOptionResponse, ProductOptionGroupResponse, ProductResponse } from './dto/product-response.dto';
+export { ProductComplementResponse, ProductOptionResponse, ProductOptionGroupResponse, ProductResponse };
+
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505';
-}
-
-export interface ProductComplementResponse {
-  id: string;
-  name: string;
-  sortOrder: number;
-}
-
-export interface ProductOptionResponse {
-  id: string;
-  /** Contrato con el menú (qué recorte dibujar); estable entre ediciones. */
-  code: string;
-  name: string;
-  /** Se suma al precio base del producto. */
-  priceDelta: number;
-  isAvailable: boolean;
-  sortOrder: number;
-}
-
-export interface ProductOptionGroupResponse {
-  id: string;
-  code: string;
-  name: string;
-  minSelect: number;
-  maxSelect: number;
-  sortOrder: number;
-  /** El aviso de delivery nombra lo elegido en este grupo (p. ej. «Tamaño»). */
-  showInNotice: boolean;
-  options: ProductOptionResponse[];
-}
-
-export interface ProductResponse {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  categoryId: string;
-  price: number;
-  isActive: boolean;
-  isAvailable: boolean;
-  sortOrder: number;
-  /** Ruta relativa al backend, no una URL directa al bucket. Null si el producto no tiene foto. */
-  imageUrl: string | null;
-  /** Todos van incluidos por defecto en el pedido; esta lista es solo lo que se puede destildar (ej. "sin cebolla"). */
-  complements: ProductComplementResponse[];
-  /** Grupos de opciones que el cliente elige al pedir (carnes de una tabla, tamaño). `[]` en los productos sin opciones. */
-  optionGroups: ProductOptionGroupResponse[];
-  /** Días en que se vende (domingo = 0 … sábado = 6, día calendario de America/La_Paz); null = todos los días. */
-  availableWeekdays: number[] | null;
-  /**
-   * Solo la regla de días, calculada para HOY en America/La_Paz. `isAvailable` sigue siendo el flag manual de «agotado»:
-   * el producto se vende hoy si ambos son true.
-   */
-  isAvailableToday: boolean;
-  /** «2 a 3 personas». Se nombra en el aviso de delivery. */
-  servesLabel: string | null;
-  /** Minutos de preparación; el aviso de delivery muestra el máximo del pedido. */
-  prepMinutes: number | null;
 }
 
 @Injectable()

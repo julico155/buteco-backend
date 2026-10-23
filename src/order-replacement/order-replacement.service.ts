@@ -24,43 +24,8 @@ import { normalizePhone } from '../customers/normalize-phone';
 import { CreateOrderReplacementDto } from './dto/create-order-replacement.dto';
 import { AppendOrderNoteDto } from './dto/append-order-note.dto';
 
-export type ReplaceableOrderResult =
-  | { result: 'no_order' }
-  | { result: 'not_replaceable'; reasonCode: ReplaceableReasonCode }
-  | {
-      result: 'replaceable';
-      orderId: string;
-      orderNumber: string;
-      status: OrderStatus;
-      deliveryType: OrderDeliveryType;
-      paymentMethod: OrderPaymentMethod;
-      hasLocation: boolean;
-      cart: {
-        deliveryType: OrderDeliveryType;
-        items: ReplaceableCartItem[];
-        promotions: { promotionId: string; quantity: number }[];
-      };
-    };
-
-/** Solo ids (no precios ni nombres): es exactamente lo que el cliente reenvía a `replacements`. `selectedOptions` solo si la línea tiene. */
-export interface ReplaceableCartItem {
-  productId: string;
-  quantity: number;
-  excludedComplements: string[];
-  selectedOptions?: { groupId: string; optionId: string }[];
-}
-
-export type AppendNoteResult =
-  | { result: 'saved' }
-  | { result: 'no_order' }
-  | { result: 'not_allowed'; reasonCode: ReplaceableReasonCode };
-
-export type CreateReplacementResult =
-  | { result: 'replaced'; orderId: string; orderNumber: string; replacedOrderId: string }
-  | { result: 'not_found' }
-  /** dto.orderId no es el último pedido activo de WhatsApp del cliente — la sesión/CTA quedó vieja. */
-  | { result: 'stale_order'; currentOrderId: string }
-  | { result: 'not_replaceable'; reasonCode: ReplaceableReasonCode };
+import { ReplaceableOrderResult, ReplaceableCartItem, AppendNoteResult, CreateReplacementResult } from './dto/replacement-response.dto';
+export { ReplaceableOrderResult, ReplaceableCartItem, AppendNoteResult, CreateReplacementResult };
 
 const REPLACEMENT_ENDPOINT = 'POST /internal/agent/orders/replacements';
 const NOTE_ENDPOINT = 'POST /internal/agent/orders/notes';

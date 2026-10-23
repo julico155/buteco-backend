@@ -5,11 +5,8 @@ import { Database } from '../database/types';
 import { DomainException } from '../common/exceptions/domain-exception';
 import { TariffBandInput, validateTariffBands } from './delivery-bands.rules';
 
-export interface TariffBandResponse {
-  bandIndex: number;
-  maxDistanceMeters: number;
-  feeAmount: number;
-}
+import { TariffBandResponse } from './dto/delivery-response.dto';
+export { TariffBandResponse };
 
 export type DeliveryFee =
   /** `free`: gratuidad por política (modo free o gratis sobre un monto) — exime también el recargo por lluvia. */

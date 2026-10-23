@@ -1,6 +1,10 @@
 import sharp from 'sharp';
 import { withAmountCaption } from './qr-image-caption';
 
+// sharp (procesamiento de imagen nativo) tarda en arrancar cuando la suite completa corre en paralelo: con el límite de
+// 5 s por defecto fallaba de forma intermitente aunque suelta pase en milisegundos.
+jest.setTimeout(30_000);
+
 async function fakeQrImageBase64(size = 100): Promise<string> {
   const buffer = await sharp({
     create: { width: size, height: size, channels: 3, background: '#000000' },

@@ -9,6 +9,15 @@ import { toResponse as toCashSessionResponse } from '../cash-register/cash-regis
 import { computeKpis, KpiGroupRow, KpisResult, round2 } from './reports.kpis';
 import { DateRange, resolveDateRange, SalesFilters } from './reports.range';
 
+import {
+  CashSessionsResponse,
+  KpisResponse,
+  OrderDetailResponse,
+  SalesListResponse,
+  TimeseriesResponse,
+  TopProductsResponse,
+} from './dto/reports-response.dto';
+
 const iso = (value: Date | string | null): string | null =>
   value ? new Date(value).toISOString() : null;
 
@@ -57,7 +66,7 @@ function groupByOrderId<T extends { order_id: string }>(rows: T[]): Map<string, 
 export class ReportsService {
   constructor(@Inject(KYSELY) private readonly db: Kysely<Database>) {}
 
-  async getKpis(filters: SalesFilters) {
+  async getKpis(filters: SalesFilters): Promise<KpisResponse> {
     const rows = await this.db
       .selectFrom('orders')
       .select([
@@ -109,7 +118,7 @@ export class ReportsService {
     return { total, byStatus };
   }
 
-  async getTimeseries(filters: SalesFilters, groupBy: 'day' | 'hour') {
+  async getTimeseries(filters: SalesFilters, groupBy: 'day' | 'hour'): Promise<TimeseriesResponse> {
     const format = groupBy === 'hour' ? 'YYYY-MM-DD"T"HH24:00' : 'YYYY-MM-DD';
     const bucket = sql<string>`to_char(orders.created_at at time zone ${sql.lit(SERVICE_TIME_ZONE)}, ${sql.lit(format)})`;
     const rows = await this.db
@@ -134,7 +143,7 @@ export class ReportsService {
     };
   }
 
-  async listOrders(filters: SalesFilters, limit: number, offset: number) {
+  async listOrders(filters: SalesFilters, limit: number, offset: number): Promise<SalesListResponse> {
     const [totals, orders] = await Promise.all([
       this.db
         .selectFrom('orders')
@@ -195,7 +204,7 @@ export class ReportsService {
     };
   }
 
-  async getOrderDetail(orderId: string) {
+  async getOrderDetail(orderId: string): Promise<OrderDetailResponse> {
     const order = await this.db
       .selectFrom('orders')
       .selectAll()
@@ -327,7 +336,7 @@ export class ReportsService {
     };
   }
 
-  async getTopProducts(filters: SalesFilters, limit: number) {
+  async getTopProducts(filters: SalesFilters, limit: number): Promise<TopProductsResponse> {
     const soldOrderIds = this.db
       .selectFrom('orders')
       .select('orders.id')
@@ -385,7 +394,7 @@ export class ReportsService {
     return { products: map(products), combos: map(combos), categories: map(categories) };
   }
 
-  async listCashSessions(from: string | undefined, to: string | undefined, limit: number, offset: number) {
+  async listCashSessions(from: string | undefined, to: string | undefined, limit: number, offset: number): Promise<CashSessionsResponse> {
     const range = resolveDateRange(from, to);
     const rows = await this.db
       .selectFrom('cash_register_sessions')

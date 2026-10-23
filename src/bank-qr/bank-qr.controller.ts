@@ -19,6 +19,8 @@ import { QrPaymentsService } from './qr-payments.service';
 import { extractQrId } from './notify-payment';
 import { MarkRefundedDto } from './dto/mark-refunded.dto';
 
+import { ApiOkResponse, ApiProduces } from '@nestjs/swagger';
+
 @Controller()
 export class BankQrController {
   private readonly logger = new Logger(BankQrController.name);
@@ -68,6 +70,11 @@ export class BankQrController {
   /** Streaming autenticado — mismo criterio que fotos de producto, nunca Base64 crudo en un JSON. */
   @Get('orders/:id/qr-image')
   @UseGuards(ServiceOrStaffAuthGuard)
+  @ApiProduces('image/png', 'image/jpeg', 'image/webp')
+  @ApiOkResponse({
+    description: 'La imagen.',
+    content: { 'image/*': { schema: { type: 'string', format: 'binary' } } },
+  })
   async getImage(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
     const { bytes, mimeType } = await this.qrPayments.getQrImage(id);
     res.setHeader('content-type', mimeType);

@@ -24,22 +24,8 @@ import {
   resolvePaymentOption,
 } from './payment-options.rules';
 
-export interface PaymentOptionResponse {
-  serviceType: OrderDeliveryType;
-  paymentMethod: OrderPaymentMethod;
-  /** Solo delivery pagado por QR; null en el resto. */
-  qrScope: QrScope | null;
-  /** Lo que prendió el admin. */
-  enabled: boolean;
-  /** Canales de origen que pueden usar esta forma de pago. */
-  channels: OrderChannel[];
-  /**
-   * Lo que el frontend debería ofrecer: prendida, permitida para el canal de
-   * quien consulta y con el banco listo si hace falta. Pintar solo las
-   * `available`.
-   */
-  available: boolean;
-}
+import { PaymentOptionResponse } from './dto/payment-option-response.dto';
+export { PaymentOptionResponse };
 
 export interface PaymentOptionChange {
   serviceType: OrderDeliveryType;

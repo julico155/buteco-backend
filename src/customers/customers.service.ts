@@ -10,15 +10,11 @@ import {
 import { FindOrCreateCustomerDto } from './dto/find-or-create-customer.dto';
 import { normalizePhone } from './normalize-phone';
 
+import { CustomerResponse } from './dto/customer-response.dto';
+export { CustomerResponse };
+
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505';
-}
-
-export interface CustomerResponse {
-  id: string;
-  name: string | null;
-  phone: string | null;
-  email: string | null;
 }
 
 @Injectable()

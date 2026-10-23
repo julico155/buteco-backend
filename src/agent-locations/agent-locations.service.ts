@@ -11,20 +11,10 @@ import type { OrderQuoteResponse } from '../delivery/delivery.service';
 import { OrdersService } from '../orders/orders.service';
 import { AttachAgentLocationDto } from './dto/attach-agent-location.dto';
 
+import { AgentLocationOrderSummary, AgentLocationResponse } from './dto/agent-location-response.dto';
+export { AgentLocationOrderSummary, AgentLocationResponse };
+
 export const AGENT_LOCATION_ENDPOINT = 'POST /internal/agent/locations/attach';
-
-export interface AgentLocationOrderSummary {
-  id: string;
-  orderNumber: string;
-  totalAmount: number;
-}
-
-export type AgentLocationResponse =
-  | { result: 'no_order' }
-  | { result: 'ambiguous_order'; orders: AgentLocationOrderSummary[] }
-  | { result: 'location_conflict'; orders: AgentLocationOrderSummary[] }
-  | { result: 'already_attached'; orderId: string; orderNumber: string }
-  | { result: 'attached'; orderId: string; orderNumber: string; quote: OrderQuoteResponse };
 
 interface OrderRow {
   id: string;
