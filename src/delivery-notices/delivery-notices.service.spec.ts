@@ -41,7 +41,7 @@ function createService(
     where: jest.fn(),
     execute: jest.fn().mockResolvedValue(
       extra.items ?? [
-        { product_name_snapshot: 'Pizza', quantity: 1, serves_label_snapshot: null, prep_minutes_snapshot: null, selected_options: [] },
+        { product_id: 'prod-pizza', product_name_snapshot: 'Pizza', quantity: 1, selected_options: [] },
       ],
     ),
   };
@@ -113,29 +113,31 @@ describe('DeliveryNoticesService', () => {
     const { service } = createService(eligibleOrder, notify, {
       items: [
         {
+          product_id: 'prod-zeus',
           product_name_snapshot: 'Tabla de Zeus',
           quantity: 1,
-          serves_label_snapshot: '2 a 3 personas',
-          prep_minutes_snapshot: 40,
           selected_options: [{ optionName: 'Pollo', showInNotice: false }],
         },
         {
+          product_id: 'prod-zeus',
           product_name_snapshot: 'Tabla de Zeus',
           quantity: 1,
-          serves_label_snapshot: '2 a 3 personas',
-          prep_minutes_snapshot: 40,
           selected_options: [{ optionName: 'Costilla de res', showInNotice: false }],
         },
         {
+          product_id: 'prod-tablita',
           product_name_snapshot: 'Tablita de pollo',
           quantity: 1,
-          serves_label_snapshot: null,
-          prep_minutes_snapshot: 25,
           selected_options: [{ optionName: '1 persona', showInNotice: true }],
         },
       ],
-      // El combo de eligibleOrder trae Pizza y Hamburguesa: la Hamburguesa tarda 15.
-      productRows: [{ prep_minutes: 15 }, { prep_minutes: null }],
+      // Personas y minutos salen del catálogo vivo. El combo de eligibleOrder trae Pizza y Hamburguesa: la Hamburguesa tarda 15.
+      productRows: [
+        { id: 'prod-zeus', serves_label: '2 a 3 personas', prep_minutes: 40 },
+        { id: 'prod-tablita', serves_label: null, prep_minutes: 25 },
+        { id: 'prod-hamburguesa', serves_label: null, prep_minutes: 15 },
+        { id: 'prod-pizza', serves_label: null, prep_minutes: null },
+      ],
     });
 
     await service.notifyConfirmed('order-1');

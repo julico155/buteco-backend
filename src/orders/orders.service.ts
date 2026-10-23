@@ -1165,8 +1165,6 @@ export class OrdersService {
             subtotal: line.subtotal.toFixed(2),
             excluded_complements: line.excludedComplements,
             selected_options: JSON.stringify(line.selectedOptions),
-            serves_label_snapshot: line.product.serves_label,
-            prep_minutes_snapshot: line.product.prep_minutes,
           })),
         )
         .execute();

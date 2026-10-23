@@ -203,9 +203,6 @@ export interface OrderItemsTable {
   excluded_complements: string[];
   /** Opciones elegidas en esta línea (snapshot). `[]` en los productos sin grupos. */
   selected_options: OptionalJsonArray<OrderItemSelectedOption[]>;
-  /** Snapshot de `products.serves_label` / `prep_minutes` al vender, para el aviso de delivery. */
-  serves_label_snapshot: ColumnType<string | null, string | null | undefined, string | null>;
-  prep_minutes_snapshot: ColumnType<number | null, number | null | undefined, number | null>;
   created_at: Timestamp;
   /** Ronda de la cuenta de mesa en la que se agregó la línea (1 para pedidos normales). */
   round_number: Generated<number>;

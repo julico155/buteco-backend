@@ -72,13 +72,7 @@ export class DeliveryNoticesService {
       const [orderItems, promotions] = await Promise.all([
         this.db
           .selectFrom('order_items')
-          .select([
-            'product_name_snapshot',
-            'quantity',
-            'serves_label_snapshot',
-            'prep_minutes_snapshot',
-            'selected_options',
-          ])
+          .select(['product_id', 'product_name_snapshot', 'quantity', 'selected_options'])
           .where('order_id', '=', orderId)
           .execute(),
         this.db
@@ -88,24 +82,33 @@ export class DeliveryNoticesService {
           .execute(),
       ]);
 
+      // Personas y tiempo de preparación se leen del catálogo vivo, no de una copia en la línea: son datos descriptivos, no
+      // algo que se cobró o se sirvió, así que no hace falta congelarlos.
+      const productIds = [
+        ...new Set([
+          ...orderItems.map((item) => item.product_id),
+          ...promotions.flatMap((p) => p.components_snapshot.map((c) => c.productId)),
+        ]),
+      ];
+      const productRows =
+        productIds.length > 0
+          ? await this.db
+              .selectFrom('products')
+              .select(['id', 'serves_label', 'prep_minutes'])
+              .where('id', 'in', productIds)
+              .execute()
+          : [];
+      const servesById = new Map(productRows.map((product) => [product.id, product.serves_label]));
+
       const items = mergeNoticeItems([
         ...orderItems.map((item) => ({
-          name: noticeItemName(item.product_name_snapshot, item.serves_label_snapshot, item.selected_options),
+          name: noticeItemName(item.product_name_snapshot, servesById.get(item.product_id), item.selected_options),
           quantity: item.quantity,
         })),
         ...promotionItems(promotions),
       ]);
-      // Tiempo de preparación: el máximo del pedido (la cocina arma las líneas en paralelo). Los componentes de un combo se
-      // leen del catálogo vivo porque su snapshot no guarda el tiempo.
-      const comboProductIds = promotions.flatMap((p) => p.components_snapshot.map((c) => c.productId));
-      const comboPrep =
-        comboProductIds.length > 0
-          ? await this.db.selectFrom('products').select('prep_minutes').where('id', 'in', comboProductIds).execute()
-          : [];
-      const prepMinutes = maxPrepMinutes([
-        ...orderItems.map((item) => item.prep_minutes_snapshot),
-        ...comboPrep.map((product) => product.prep_minutes),
-      ]);
+      // Tiempo de preparación: el máximo del pedido (la cocina arma las líneas en paralelo).
+      const prepMinutes = maxPrepMinutes(productRows.map((product) => product.prep_minutes));
       const deliveryAmount = Number(order.delivery_base_amount) + Number(order.delivery_surcharge_amount);
       const text = buildDeliveryNotice({
         orderNumber: order.order_number,

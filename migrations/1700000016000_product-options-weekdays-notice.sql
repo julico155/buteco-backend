@@ -9,7 +9,6 @@
 --     (identifica qué recorte dibujar) y es único dentro de su producto / grupo.
 --   - `order_items.selected_options`: snapshot de lo elegido en la línea (ids + nombres + delta), igual que
 --     `components_snapshot`: un cambio posterior del catálogo no altera pedidos viejos. Sin FK a propósito.
---   - `order_items.serves_label_snapshot` / `prep_minutes_snapshot`: lo que necesita el aviso de delivery sin releer el catálogo.
 --   - `products.available_weekdays`: días de la semana (domingo = 0 … sábado = 6, día calendario de America/La_Paz) en que se
 --     vende; null = todos los días.
 --   - `products.serves_label` («2 a 3 personas») y `products.prep_minutes` (minutos de preparación).
@@ -60,14 +59,10 @@ alter table products
   add constraint ck_products_prep_minutes check (prep_minutes is null or prep_minutes between 1 and 600);
 
 alter table order_items
-  add column selected_options       jsonb not null default '[]'::jsonb,
-  add column serves_label_snapshot  text null,
-  add column prep_minutes_snapshot  integer null;
+  add column selected_options jsonb not null default '[]'::jsonb;
 
 -- Down Migration
 alter table order_items
-  drop column prep_minutes_snapshot,
-  drop column serves_label_snapshot,
   drop column selected_options;
 
 alter table products

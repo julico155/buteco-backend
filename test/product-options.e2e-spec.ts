@@ -199,8 +199,6 @@ describeIfDb('Opciones de producto y disponibilidad por día (integración)', ()
     expect(order.items[0].selectedOptions?.map((o) => `${o.groupCode}:${o.optionCode}`)).toEqual(['carne-1:pollo', 'carne-2:pollo']);
     expect(order.items[0].selectedOptions?.[0]).not.toHaveProperty('showInNotice');
 
-    const row = await db.selectFrom('order_items').select(['serves_label_snapshot', 'prep_minutes_snapshot']).where('order_id', '=', order.id).executeTakeFirstOrThrow();
-    expect(row).toEqual({ serves_label_snapshot: '2 a 3 personas', prep_minutes_snapshot: 40 });
 
     // Faltan las carnes -> 400; una carne de otro producto -> 400.
     await expect(orders.create(pickups(customer.id, [{ productId: zeusId, quantity: 1 }]) as never, key('3a'), 'pos')).rejects.toMatchObject({ code: 'invalid_option_selection' });
