@@ -280,12 +280,17 @@ export class OrdersService {
     deliveryType?: OrderDeliveryType;
     paymentStatus?: OrderPaymentStatus;
     channel?: OrderChannel;
+    /** Creados desde (inclusive) hasta (exclusivo). */
+    createdFrom?: Date;
+    createdTo?: Date;
     limit?: number;
     offset?: number;
   }): Promise<OrderResponse[]> {
     // El adelanto de una reserva es un pedido de servicio, no algo que se cocine ni se entregue.
     let query = this.db.selectFrom('orders').selectAll().where('reservation_deposit', '=', false);
     if (filter.channel) query = query.where('channel', '=', filter.channel);
+    if (filter.createdFrom) query = query.where('created_at', '>=', filter.createdFrom);
+    if (filter.createdTo) query = query.where('created_at', '<', filter.createdTo);
     if (filter.customerId) query = query.where('customer_id', '=', filter.customerId);
     if (filter.status) query = query.where('status', '=', filter.status);
     if (filter.deliveryType) query = query.where('delivery_type', '=', filter.deliveryType);

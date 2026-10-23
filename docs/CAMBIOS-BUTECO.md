@@ -141,6 +141,13 @@ valida y guarda un snapshot en la línea. `products` gana `availableWeekdays` (d
 (`2 x Tabla de Zeus (2 a 3 personas)`) y termina con el tiempo de preparación (el máximo del pedido). Todo es aditivo: sin grupos ni días, nada cambia.
 Contrato, ejemplos y errores en [carta-opciones-producto.md](carta-opciones-producto.md). Migración `1700000016000`.
 
+### Filtro por fecha en `GET /orders`
+El número de pedido (`ORD-0001`) se reinicia en cada apertura de caja y no lleva
+fecha, así que se puede repetir (incluso el mismo día). Para distinguirlos, `GET
+/orders` acepta `date=YYYY-MM-DD` (un día) o `from`/`to` (rango, inclusivos), en
+**hora de La Paz**: un pedido de las 23:03 del 16 cae en el 16 aunque en UTC ya sea
+el 17. Sin esos parámetros no filtra por fecha. `createdAt` sigue viniendo en UTC.
+
 ## 4. Cómo se verificó
 
 | Qué | Resultado |
