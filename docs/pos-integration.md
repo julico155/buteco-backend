@@ -180,6 +180,9 @@ La respuesta trae el pedido completo — es lo que imprimís en el ticket:
   congelados al momento de la venta (`productNameSnapshot`,
   `unitPriceSnapshot`) y `excludedComplements[]` (imprimir en el ticket y
   mandar a cocina, ej. "SIN CEBOLLA").
+- `items[].selectedOptions[]` — solo en las líneas con opciones elegidas (las carnes de una tabla, el tamaño): `groupName`, `optionName`, `priceDelta`.
+  Imprimirlas bajo la línea, ej. "Carne 1: Pollo". `unitPriceSnapshot` ya incluye los `priceDelta`. Ver
+  [carta-opciones-producto.md](carta-opciones-producto.md).
 - `promotions[]` — los combos, cada uno con `promotionNameSnapshot`,
   `promoPriceSnapshot`, `comboQuantity` y `componentsSnapshot[]` (qué
   productos entraron en el combo, para el ticket y para cocina).

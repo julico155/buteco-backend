@@ -370,6 +370,8 @@ GET /internal/agent/orders/replaceable?customerPhone=+59170001234
       "cart": { "deliveryType", "items": [{productId, quantity, excludedComplements}],
                 "promotions": [{promotionId, quantity}] } }
 ```
+
+Cada ítem del `cart` lleva además `selectedOptions: [{groupId, optionId}]` **solo si la línea tiene opciones elegidas** (carnes de una tabla, tamaño); se reenvía tal cual a `replacements`. Ver [carta-opciones-producto.md](carta-opciones-producto.md).
 `cart` trae solo identificadores y cantidades — nunca precios como
 autoridad, son solo para precargar el menú. `not_replaceable` con
 `already_paid`/`payment_in_progress`: hacé handoff humano y silencio
@@ -482,7 +484,7 @@ proveedor de WhatsApp no te da un id de mensaje, devolvé cualquier string
 | `late_request_rejected` | Solicitud fuera de horario rechazada por staff | `{ requestNumber }` |
 
 **`qr_confirmation.context` en detalle** — Central calcula y entrega todos
-los montos, el agente no recalcula nada:
+los montos, el agente no recalcula nada (cada elemento de `items[]` puede traer `selectedOptions: [{groupName, optionName, priceDelta}]`, solo si la línea tiene opciones elegidas; ver [carta-opciones-producto.md](carta-opciones-producto.md)):
 
 ```
 {

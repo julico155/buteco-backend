@@ -132,6 +132,15 @@ Migración aditiva `1700000014000` (la restricción de las solicitudes tardías 
 
 Un 202 ya se puede recuperar tras una recarga o una respuesta perdida: el reintento con la misma `Idempotency-Key` devuelve el estado actual (con el pedido si fue aceptada) y `GET /late-order-requests/by-key/:key?phone=` lo consulta sin reenviar el carrito, solo con el teléfono del cliente dueño. La clave pasa a ser única por servicio, un reintento con otro contenido da `409`, y el listado y la lectura por UUID de solicitudes quedan solo para staff. Migración `1700000015000`. Detalle en [gateway-integration.md](gateway-integration.md).
 
+### Fase 7: la carta del menú web (opciones de producto)
+
+Tablitas con tamaño, tablas para compartir con carnes a elegir y la sopa de maní solo sábados y domingos. Cada producto puede tener **grupos de opciones**
+(`minSelect`/`maxSelect`, con `priceDelta` por opción y opciones agotables); el cliente manda solo ids en `items[].selectedOptions` y Central calcula el precio,
+valida y guarda un snapshot en la línea. `products` gana `availableWeekdays` (día calendario de La Paz; Central rechaza el pedido con
+`product_unavailable` / `not_available_today`), `servesLabel` y `prepMinutes`. El aviso de delivery a Telegram nombra cada línea con las personas
+(`2 x Tabla de Zeus (2 a 3 personas)`) y termina con el tiempo de preparación (el máximo del pedido). Todo es aditivo: sin grupos ni días, nada cambia.
+Contrato, ejemplos y errores en [carta-opciones-producto.md](carta-opciones-producto.md). Migración `1700000016000`.
+
 ## 4. Cómo se verificó
 
 | Qué | Resultado |
