@@ -109,9 +109,42 @@ describe('OrderReplacementService.resolveReplaceable', () => {
     expect(ordersChain.where).toHaveBeenCalledWith('channel', '=', 'whatsapp');
   });
 
+  it('returns only ids of the selected options, and only for lines that have them', async () => {
+    const order = { id: 'order-1', order_number: 'ORD-0001', status: 'awaiting_location', payment_status: 'unpaid', payment_method: 'qr', delivery_type: 'delivery', delivery_latitude: null, delivery_longitude: null, notes: null };
+    const items = [
+      {
+        product_id: 'zeus',
+        quantity: 1,
+        excluded_complements: [],
+        selected_options: [
+          { groupId: 'g1', optionId: 'o1', groupCode: 'carne-1', groupName: 'Carne 1', optionCode: 'pollo', optionName: 'Pollo', priceDelta: 0, showInNotice: false },
+          { groupId: 'g2', optionId: 'o2', groupCode: 'carne-2', groupName: 'Carne 2', optionCode: 'chancho', optionName: 'Chancho', priceDelta: 0, showInNotice: false },
+        ],
+      },
+      { product_id: 'gaseosa', quantity: 2, excluded_complements: [], selected_options: [] },
+    ];
+    const { service } = createService({
+      dbSelectFrom: tableRouter({ customers: chain(customer), orders: chain(order), bank_qr_charges: chain([]), payment_attempts: chain([]), order_items: chain(items), order_promotions: chain([]) }),
+    });
+
+    const result = await service.resolveReplaceable('+59170001234', 'whatsapp');
+
+    expect(result).toMatchObject({
+      result: 'replaceable',
+      cart: {
+        items: [
+          { productId: 'zeus', quantity: 1, excludedComplements: [], selectedOptions: [{ groupId: 'g1', optionId: 'o1' }, { groupId: 'g2', optionId: 'o2' }] },
+          { productId: 'gaseosa', quantity: 2, excludedComplements: [] },
+        ],
+      },
+    });
+    // Sin la clave en la línea sin opciones: el carrito de siempre no cambia.
+    expect((result as { cart: { items: object[] } }).cart.items[1]).not.toHaveProperty('selectedOptions');
+  });
+
   it('returns the cart (ids + quantities, no prices) for a replaceable order', async () => {
     const order = { id: 'order-1', order_number: 'ORD-0001', status: 'awaiting_location', payment_status: 'unpaid', payment_method: 'qr', delivery_type: 'delivery', delivery_latitude: null, delivery_longitude: null, notes: null };
-    const items = [{ product_id: 'p1', quantity: 2, excluded_complements: ['cebolla'] }];
+    const items = [{ product_id: 'p1', quantity: 2, excluded_complements: ['cebolla'], selected_options: [] }];
     const promotions = [{ promotion_id: 'promo-1', combo_quantity: 1 }];
     const { service } = createService({
       dbSelectFrom: tableRouter({

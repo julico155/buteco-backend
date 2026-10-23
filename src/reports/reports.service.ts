@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Expression, ExpressionBuilder, Kysely, sql, SqlBool } from 'kysely';
 import { KYSELY } from '../database/database.module';
 import { Database } from '../database/types';
+import { toSelectedOptionResponse } from '../orders/order-item-options';
 import { NotFoundDomainError } from '../common/exceptions/domain-exception';
 import { SERVICE_TIME_ZONE } from '../common/time/service-window';
 import { toResponse as toCashSessionResponse } from '../cash-register/cash-register.service';
@@ -294,6 +295,7 @@ export class ReportsService {
         quantity: i.quantity,
         subtotal: Number(i.subtotal),
         excludedComplements: i.excluded_complements,
+        ...(i.selected_options.length > 0 ? { selectedOptions: i.selected_options.map(toSelectedOptionResponse) } : {}),
       })),
       promotions: promotions.map((p) => ({
         promotionId: p.promotion_id,

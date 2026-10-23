@@ -22,16 +22,55 @@ export class ValidationError extends DomainException {
 }
 
 export class ProductUnavailableError extends DomainException {
+  /**
+   * `not_available_today`: el producto solo se vende ciertos días de la semana; `extra.availableWeekdays` (0 = domingo)
+   * los lista para que el cliente pueda decir «solo sábados y domingos».
+   */
   constructor(
     productId: string,
-    reason: 'inactive' | 'sold_out',
+    reason: 'inactive' | 'sold_out' | 'not_available_today',
     unavailableProductIds?: string[],
+    extra: { availableWeekdays?: number[] } = {},
   ) {
     super(
       'product_unavailable',
       HttpStatus.CONFLICT,
       `El producto ${productId} no está disponible (${reason}).`,
-      { productId, reason, unavailableProductIds: unavailableProductIds ?? [productId] },
+      { productId, reason, unavailableProductIds: unavailableProductIds ?? [productId], ...extra },
+    );
+  }
+}
+
+export type InvalidOptionSelectionReason =
+  | 'unknown_group'
+  | 'unknown_option'
+  | 'duplicate_option'
+  | 'too_few'
+  | 'too_many';
+
+/** La selección de opciones de una línea no es válida para ese producto (error del cliente, no se reintenta igual). */
+export class InvalidOptionSelectionError extends DomainException {
+  constructor(
+    reason: InvalidOptionSelectionReason,
+    details: { productId: string; groupId?: string; optionId?: string; minSelect?: number; maxSelect?: number },
+  ) {
+    super(
+      'invalid_option_selection',
+      HttpStatus.BAD_REQUEST,
+      `La selección de opciones del producto ${details.productId} no es válida (${reason}).`,
+      { reason, ...details },
+    );
+  }
+}
+
+/** Una opción elegida está agotada (p. ej. se acabó una carne): el cliente tiene que elegir otra. */
+export class OptionUnavailableError extends DomainException {
+  constructor(details: { productId: string; groupId: string; optionId: string; unavailableOptionIds: string[] }) {
+    super(
+      'option_unavailable',
+      HttpStatus.CONFLICT,
+      `La opción ${details.optionId} del producto ${details.productId} no está disponible.`,
+      details,
     );
   }
 }

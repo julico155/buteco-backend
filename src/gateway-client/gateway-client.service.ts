@@ -10,6 +10,8 @@ export interface CustomerMessageOrderItem {
   unitPrice: number;
   subtotal: number;
   excludedComplements: string[];
+  /** Solo cuando la línea tiene opciones elegidas (p. ej. «Carne 1: Pollo»); con nombres, para que el agente las muestre. */
+  selectedOptions?: { groupName: string; optionName: string; priceDelta: number }[];
 }
 
 export interface CustomerMessageComboItem {

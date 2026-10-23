@@ -16,6 +16,8 @@ import { IdempotencyService } from '../common/idempotency/idempotency.service';
 import { PaymentOptionsService } from '../payment-options/payment-options.service';
 import { QrPaymentsService } from '../bank-qr/qr-payments.service';
 import { loadOrderLines, OrderResponse, OrdersService } from '../orders/orders.service';
+import { idempotencyBody } from '../orders/delivery-location';
+import { itemLineKey } from '../orders/order-item-options';
 import { AddRoundDto, CloseAccountDto, OpenAccountDto } from './dto/account.dto';
 import { isUniqueViolation } from './tables.service';
 
@@ -45,6 +47,8 @@ export interface AccountRound {
     quantity: number;
     subtotal: number;
     excludedComplements: string[];
+    /** Solo cuando la línea tiene opciones elegidas (p. ej. las carnes de una tabla). */
+    selectedOptions?: { groupName: string; optionName: string; priceDelta: number }[];
   } & LineVoidInfo)[];
   promotions: ({
     id: string;
@@ -203,10 +207,10 @@ export class TableAccountsService {
     if (items.length + promotions.length < 1) {
       throw new ValidationError('La ronda está vacía.');
     }
-    const lineKeys = items.map((i) => `${i.productId}::${(i.excludedComplements ?? []).slice().sort().join('|')}`);
+    const lineKeys = items.map(itemLineKey);
     if (new Set(lineKeys).size !== lineKeys.length) {
       throw new ValidationError(
-        'La ronda tiene líneas duplicadas (mismo producto y misma selección). Sumá la cantidad en una sola línea.',
+        'La ronda tiene líneas duplicadas (mismo producto, mismos complementos y misma selección de opciones). Sumá la cantidad en una sola línea.',
       );
     }
 
@@ -214,7 +218,7 @@ export class TableAccountsService {
       apiClient: ACCOUNT_CHANNEL,
       endpoint: `POST /tables/${tableId}/account/rounds`,
       idempotencyKey,
-      requestBody: dto,
+      requestBody: idempotencyBody(dto),
       execute: async (trx) => {
         const table = await this.requireTable(trx, tableId);
         const order = await this.lockLiveOrder(trx, tableId);
@@ -226,6 +230,7 @@ export class TableAccountsService {
             productId: i.productId,
             quantity: i.quantity,
             excludedComplements: i.excludedComplements,
+            selectedOptions: i.selectedOptions,
           })),
           promotions.map((p) => ({
             promotionId: p.promotionId,
@@ -247,10 +252,13 @@ export class TableAccountsService {
                 product_id: line.product.id,
                 product_code_snapshot: line.product.code,
                 product_name_snapshot: line.product.name,
-                unit_price_snapshot: line.product.price,
+                unit_price_snapshot: line.unitPrice.toFixed(2),
                 quantity: line.quantity,
                 subtotal: line.subtotal.toFixed(2),
                 excluded_complements: line.excludedComplements,
+                selected_options: JSON.stringify(line.selectedOptions),
+                serves_label_snapshot: line.product.serves_label,
+                prep_minutes_snapshot: line.product.prep_minutes,
                 round_number: roundNumber,
               })),
             )
@@ -716,6 +724,15 @@ export class TableAccountsService {
         quantity: item.quantity,
         subtotal: Number(item.subtotal),
         excludedComplements: item.excluded_complements,
+        ...(item.selected_options.length > 0
+          ? {
+              selectedOptions: item.selected_options.map((o) => ({
+                groupName: o.groupName,
+                optionName: o.optionName,
+                priceDelta: o.priceDelta,
+              })),
+            }
+          : {}),
         ...voidInfo(item),
       });
     }

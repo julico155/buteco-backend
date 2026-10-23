@@ -112,7 +112,7 @@ function createService(overrides: { quote?: jest.Mock; idempotencyRun?: jest.Moc
     { resolve: jest.fn().mockResolvedValue(null) } as never,
   );
   jest.spyOn(service, 'priceCart').mockResolvedValue({
-    itemLines: [{ product: { id: 'p1', code: 'P1', name: 'Hamburguesa', price: '25.00' }, quantity: 2, subtotal: 50, excludedComplements: [] }],
+    itemLines: [{ product: { id: 'p1', code: 'P1', name: 'Hamburguesa', price: '25.00', serves_label: null, prep_minutes: null }, quantity: 2, unitPrice: 25, subtotal: 50, excludedComplements: [], selectedOptions: [] }],
     promotionLines: [],
     subtotal: 50,
     now: new Date('2026-10-06T16:00:00Z'),

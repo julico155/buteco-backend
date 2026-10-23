@@ -147,3 +147,30 @@ describe('buildQrConfirmationContext', () => {
     ]);
   });
 });
+
+describe('buildQrConfirmationContext — opciones elegidas', () => {
+  it('lleva las opciones CON NOMBRES (para que el cliente vea las carnes) solo en las líneas que las tienen', () => {
+    const base = baseOrder();
+    const context = buildQrConfirmationContext({
+      ...base,
+      items: [
+        {
+          ...base.items[0],
+          productNameSnapshot: 'Tabla de Zeus',
+          selectedOptions: [
+            { groupId: 'g1', optionId: 'o1', groupCode: 'carne-1', groupName: 'Carne 1', optionCode: 'pollo', optionName: 'Pollo', priceDelta: 0 },
+            { groupId: 'g2', optionId: 'o2', groupCode: 'carne-2', groupName: 'Carne 2', optionCode: 'costilla-res', optionName: 'Costilla de res', priceDelta: 0 },
+          ],
+        },
+        { ...base.items[0], productNameSnapshot: 'Gaseosa' },
+      ],
+    });
+
+    expect(context.items[0].selectedOptions).toEqual([
+      { groupName: 'Carne 1', optionName: 'Pollo', priceDelta: 0 },
+      { groupName: 'Carne 2', optionName: 'Costilla de res', priceDelta: 0 },
+    ]);
+    // Los ítems sin opciones no llevan la clave: el contexto de siempre no cambia.
+    expect(context.items[1]).not.toHaveProperty('selectedOptions');
+  });
+});

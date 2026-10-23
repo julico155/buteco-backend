@@ -37,10 +37,18 @@ export type ReplaceableOrderResult =
       hasLocation: boolean;
       cart: {
         deliveryType: OrderDeliveryType;
-        items: { productId: string; quantity: number; excludedComplements: string[] }[];
+        items: ReplaceableCartItem[];
         promotions: { promotionId: string; quantity: number }[];
       };
     };
+
+/** Solo ids (no precios ni nombres): es exactamente lo que el cliente reenvía a `replacements`. `selectedOptions` solo si la línea tiene. */
+export interface ReplaceableCartItem {
+  productId: string;
+  quantity: number;
+  excludedComplements: string[];
+  selectedOptions?: { groupId: string; optionId: string }[];
+}
 
 export type AppendNoteResult =
   | { result: 'saved' }
@@ -418,13 +426,13 @@ export class OrderReplacementService {
     executor: Kysely<Database>,
     orderId: string,
   ): Promise<{
-    items: { productId: string; quantity: number; excludedComplements: string[] }[];
+    items: ReplaceableCartItem[];
     promotions: { promotionId: string; quantity: number }[];
   }> {
     const [items, promotions] = await Promise.all([
       executor
         .selectFrom('order_items')
-        .select(['product_id', 'quantity', 'excluded_complements'])
+        .select(['product_id', 'quantity', 'excluded_complements', 'selected_options'])
         .where('order_id', '=', orderId)
         .execute(),
       executor
@@ -438,6 +446,9 @@ export class OrderReplacementService {
         productId: i.product_id,
         quantity: i.quantity,
         excludedComplements: i.excluded_complements,
+        ...(i.selected_options.length > 0
+          ? { selectedOptions: i.selected_options.map((o) => ({ groupId: o.groupId, optionId: o.optionId })) }
+          : {}),
       })),
       promotions: promotions
         .filter((p): p is typeof p & { promotion_id: string } => p.promotion_id !== null)

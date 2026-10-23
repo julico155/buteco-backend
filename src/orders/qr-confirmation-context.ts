@@ -53,6 +53,15 @@ function toOrderItem(item: OrderItemResponse): CustomerMessageOrderItem {
     unitPrice: item.unitPriceSnapshot,
     subtotal: item.subtotal,
     excludedComplements: item.excludedComplements,
+    ...(item.selectedOptions && item.selectedOptions.length > 0
+      ? {
+          selectedOptions: item.selectedOptions.map((option) => ({
+            groupName: option.groupName,
+            optionName: option.optionName,
+            priceDelta: option.priceDelta,
+          })),
+        }
+      : {}),
   };
 }
 

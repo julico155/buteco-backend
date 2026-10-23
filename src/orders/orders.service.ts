@@ -8,6 +8,7 @@ import {
   OrderChannel,
   OrderDeliveryType,
   OrderPaymentMethod,
+  OrderItemSelectedOption,
   OrderPaymentStatus,
   OrderPromotionComponentSnapshot,
   OrderStatus,
@@ -57,15 +58,29 @@ import { requiresPaymentBeforeHandover } from './payment-gate';
 import { decideLocationAttach, LocationAttachDecision } from './location-attach';
 import { buildQrConfirmationContext, qrAmountFor } from './qr-confirmation-context';
 import { assertDeliveryLocationForWrite, assertWebDeliveryLocation, DeliveryLocationInput, idempotencyBody, sameDeliveryLocation } from './delivery-location';
+import {
+  isAvailableOnDay,
+  itemLineKey,
+  OptionGroupRow,
+  OptionRow,
+  OrderItemSelectedOptionResponse,
+  resolveSelectedOptions,
+  roundMoney,
+  SelectedOptionInput,
+  toSelectedOptionResponse,
+} from './order-item-options';
 
 export interface OrderItemResponse {
   productId: string;
   productCodeSnapshot: string;
   productNameSnapshot: string;
+  /** Precio unitario efectivo: base del producto + Σ priceDelta de las opciones elegidas. */
   unitPriceSnapshot: number;
   quantity: number;
   subtotal: number;
   excludedComplements: string[];
+  /** Solo cuando la línea tiene opciones elegidas; los productos sin grupos no llevan la clave. */
+  selectedOptions?: OrderItemSelectedOptionResponse[];
   /** Ronda de la cuenta de mesa en la que se agregó (1 en pedidos normales). */
   roundNumber: number;
 }
@@ -159,7 +174,7 @@ export interface CheckoutCartInput {
   /** Pedido ya cobrado fuera del sistema (canal `external`): nace `paid`. */
   settledExternally?: boolean;
   notes: string | null;
-  items: { productId: string; quantity: number; excludedComplements?: string[] }[];
+  items: { productId: string; quantity: number; excludedComplements?: string[]; selectedOptions?: SelectedOptionInput[] }[];
   promotions: { promotionId: string; quantity: number; revision: number }[];
   /** Solo lo pasa LateOrderRequestsService.accept() — un pedido normal nace sin caja, se vincula recién al cobrarse. */
   registerSessionId?: string | null;
@@ -780,13 +795,13 @@ export class OrdersService {
   ) {
     const productIds = items.map((i) => i.productId);
     // Dos líneas del mismo producto son válidas si tienen distinta selección
-    // de complementos (ej. "sin cebolla" en una sola unidad) — lo que no
-    // vale es repetir exactamente la misma combinación en dos líneas, eso
-    // debería ser una sola línea con más quantity.
-    const itemLineKeys = items.map((i) => `${i.productId}::${complementsKey(i.excludedComplements)}`);
+    // de complementos (ej. "sin cebolla" en una sola unidad) u opciones (otras
+    // carnes en la misma tabla) — lo que no vale es repetir exactamente la
+    // misma combinación en dos líneas, eso debería ser una sola línea con más quantity.
+    const itemLineKeys = items.map(itemLineKey);
     if (new Set(itemLineKeys).size !== itemLineKeys.length) {
       throw new ValidationError(
-        'El carrito tiene líneas duplicadas (mismo producto y misma selección de complementos). Sumá la cantidad en una sola línea en vez de repetirla.',
+        'El carrito tiene líneas duplicadas (mismo producto, mismos complementos y misma selección de opciones). Sumá la cantidad en una sola línea en vez de repetirla.',
       );
     }
     const promotionIds = promotions.map((p) => p.promotionId);
@@ -890,10 +905,14 @@ export class OrdersService {
 
     const inactiveProductIds = new Set<string>();
     const soldOutProductIds = new Set<string>();
+    const notTodayProductIds = new Set<string>();
     for (const id of allProductIds) {
       const row = productById.get(id);
       if (!row || row.is_active !== true) inactiveProductIds.add(id);
       else if (row.is_available !== true) soldOutProductIds.add(id);
+      // Disponibilidad por día (p. ej. sopa de maní solo sábados y domingos): la decide Central, no depende de que alguien
+      // marque «agotado» a mano. Con el reloj de la base, igual que la vigencia de promociones.
+      else if (!isAvailableOnDay(row.available_weekdays, now)) notTodayProductIds.add(id);
     }
 
     // Rechazos de productos SUELTOS únicamente — un componente caído de un
@@ -908,10 +927,21 @@ export class OrdersService {
     if (soldOutLooseItemIds.length > 0) {
       throw new ProductUnavailableError(soldOutLooseItemIds[0], 'sold_out', soldOutLooseItemIds);
     }
+    const notTodayLooseItemIds = items.filter((i) => notTodayProductIds.has(i.productId)).map((i) => i.productId);
+    if (notTodayLooseItemIds.length > 0) {
+      const first = productById.get(notTodayLooseItemIds[0])!;
+      throw new ProductUnavailableError(notTodayLooseItemIds[0], 'not_available_today', notTodayLooseItemIds, {
+        availableWeekdays: first.available_weekdays ?? [],
+      });
+    }
 
     // Promociones con algún componente caído.
     for (const comp of promotionComponents) {
-      if (inactiveProductIds.has(comp.product_id) || soldOutProductIds.has(comp.product_id)) {
+      if (
+        inactiveProductIds.has(comp.product_id) ||
+        soldOutProductIds.has(comp.product_id) ||
+        notTodayProductIds.has(comp.product_id)
+      ) {
         badPromotionIds.add(comp.promotion_id);
       }
     }
@@ -938,17 +968,56 @@ export class OrdersService {
       throw new PromotionUnavailableError(list[0], 'unavailable', list);
     }
 
+    // Grupos de opciones de los productos sueltos (las carnes de una tabla, el tamaño...). Se cargan siempre, no solo cuando el
+    // cliente mandó una selección: un grupo obligatorio sin elegir también se rechaza. Las opciones se bloquean `for share`
+    // (id ascendente, después de los productos) para que un «agotado» concurrente no se cuele entre la validación y el insert.
+    const itemProductIds = Array.from(new Set(productIds)).sort();
+    const optionGroups: OptionGroupRow[] =
+      itemProductIds.length > 0
+        ? await trx
+            .selectFrom('product_option_groups')
+            .select(['id', 'product_id', 'code', 'name', 'min_select', 'max_select', 'show_in_notice'])
+            .where('product_id', 'in', itemProductIds)
+            .orderBy('sort_order', 'asc')
+            .orderBy('id', 'asc')
+            .execute()
+        : [];
+    const optionRows: OptionRow[] =
+      optionGroups.length > 0
+        ? await trx
+            .selectFrom('product_options')
+            .select(['id', 'group_id', 'code', 'name', 'price_delta', 'is_available'])
+            .where(
+              'group_id',
+              'in',
+              optionGroups.map((g) => g.id),
+            )
+            .orderBy('id', 'asc')
+            .forShare()
+            .execute()
+        : [];
+
     // CÁLCULO. Todo desde la base, nada del cliente.
     let subtotal = 0;
     const itemLines = items.map((i) => {
       const product = productById.get(i.productId)!;
-      const lineSubtotal = Number(product.price) * i.quantity;
+      const { selectedOptions, priceDelta } = resolveSelectedOptions({
+        productId: product.id,
+        selected: i.selectedOptions,
+        groups: optionGroups,
+        options: optionRows,
+      });
+      // Precio unitario efectivo: así `unitPrice * quantity = subtotal` sigue valiendo para quien lo verifique.
+      const unitPrice = roundMoney(Number(product.price) + priceDelta);
+      const lineSubtotal = roundMoney(unitPrice * i.quantity);
       subtotal += lineSubtotal;
       return {
         product,
         quantity: i.quantity,
+        unitPrice,
         subtotal: lineSubtotal,
         excludedComplements: i.excludedComplements ?? [],
+        selectedOptions,
       };
     });
 
@@ -1091,10 +1160,13 @@ export class OrdersService {
             product_id: line.product.id,
             product_code_snapshot: line.product.code,
             product_name_snapshot: line.product.name,
-            unit_price_snapshot: line.product.price,
+            unit_price_snapshot: line.unitPrice.toFixed(2),
             quantity: line.quantity,
             subtotal: line.subtotal.toFixed(2),
             excluded_complements: line.excludedComplements,
+            selected_options: JSON.stringify(line.selectedOptions),
+            serves_label_snapshot: line.product.serves_label,
+            prep_minutes_snapshot: line.product.prep_minutes,
           })),
         )
         .execute();
@@ -1213,10 +1285,32 @@ export class OrdersService {
     // createOrderInTransaction. Un producto/promo que ya no exista no revienta
     // la solicitud — solo no suma al subtotal mostrado; se rechazará como
     // 'order_unavailable' recién al intentar aceptar.
+    // Con los `price_delta` de las opciones elegidas (best-effort, sin validar la selección: eso lo hace `priceCart` al aceptar),
+    // para que el pedido mínimo no se calcule a la baja con las tablas de precio por opción.
+    const selectedOptionIds = items.flatMap((i) => (i.selectedOptions ?? []).map((s) => s.optionId));
+    const deltaByOptionId = new Map<string, number>(
+      selectedOptionIds.length > 0
+        ? (
+            await this.db
+              .selectFrom('product_options')
+              .select(['id', 'price_delta'])
+              .where('id', 'in', selectedOptionIds)
+              .execute()
+          ).map((o) => [o.id, Number(o.price_delta)] as [string, number])
+        : [],
+    );
     let subtotal = 0;
     for (const item of items) {
       const product = productById.get(item.productId);
-      if (product) subtotal += Number(product.price) * item.quantity;
+      if (!product) continue;
+      // La disponibilidad por día se rechaza ya al pedir: no tiene sentido encolar para el local algo que no se va a cocinar.
+      if (!isAvailableOnDay(product.available_weekdays, now)) {
+        throw new ProductUnavailableError(product.id, 'not_available_today', [product.id], {
+          availableWeekdays: product.available_weekdays ?? [],
+        });
+      }
+      const delta = (item.selectedOptions ?? []).reduce((sum, s) => sum + (deltaByOptionId.get(s.optionId) ?? 0), 0);
+      subtotal += roundMoney(Number(product.price) + delta) * item.quantity;
     }
     for (const p of promotions) {
       const promo = promotionById.get(p.promotionId);
@@ -2051,11 +2145,6 @@ function assertSameStoredRequest(
   if (!sameDeliveryLocation(stored, incoming)) throw new IdempotencyKeyReusedError(idempotencyKey);
 }
 
-/** Clave normalizada (orden-insensible) para comparar la selección de complementos excluidos de dos líneas. */
-function complementsKey(excluded: string[] | undefined): string {
-  return JSON.stringify([...(excluded ?? [])].sort());
-}
-
 function groupByOrderId<T extends { order_id: string }>(rows: T[]): Map<string, T[]> {
   const byOrder = new Map<string, T[]>();
   for (const row of rows) {
@@ -2126,6 +2215,7 @@ export function toOrderResponse(
     quantity: number;
     subtotal: string;
     excluded_complements: string[];
+    selected_options?: OrderItemSelectedOption[];
     round_number?: number;
   }[],
   promotions: {
@@ -2182,6 +2272,9 @@ export function toOrderResponse(
       quantity: item.quantity,
       subtotal: Number(item.subtotal),
       excludedComplements: item.excluded_complements,
+      ...(item.selected_options && item.selected_options.length > 0
+        ? { selectedOptions: item.selected_options.map(toSelectedOptionResponse) }
+        : {}),
       roundNumber: item.round_number ?? 1,
     })),
     promotions: promotions.map((promotion) => ({

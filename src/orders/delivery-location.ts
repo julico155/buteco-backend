@@ -105,8 +105,30 @@ export function sameDeliveryLocation(a: DeliveryLocationInput | null, b: Deliver
  */
 export function idempotencyBody<T extends object>(dto: T): T | Omit<T, 'deliveryLocation'> {
   const location = (dto as { deliveryLocation?: unknown }).deliveryLocation;
-  if (location !== undefined && location !== null) return dto;
-  return Object.fromEntries(Object.entries(dto).filter(([key]) => key !== 'deliveryLocation')) as Omit<T, 'deliveryLocation'>;
+  const body =
+    location !== undefined && location !== null
+      ? dto
+      : (Object.fromEntries(Object.entries(dto).filter(([key]) => key !== 'deliveryLocation')) as Omit<T, 'deliveryLocation'>);
+  return withoutUnsetItemSelections(body);
+}
+
+/**
+ * Mismo criterio para `items[].selectedOptions` (opciones de producto): solo entra al hash cuando VIENE. Sin esto el DTO la trae
+ * como `undefined` en cada ítem y el hash de TODO pedido cambiaría con este despliegue: un reintento de un pedido enviado antes
+ * recibiría 409 `idempotency_key_reused`.
+ */
+function withoutUnsetItemSelections<T extends object>(body: T): T {
+  const items = (body as { items?: unknown }).items;
+  if (!Array.isArray(items)) return body;
+  const isUnset = (item: unknown): boolean =>
+    typeof item === 'object' && item !== null && 'selectedOptions' in item && (item as { selectedOptions?: unknown }).selectedOptions == null;
+  if (!items.some(isUnset)) return body;
+  return {
+    ...body,
+    items: items.map((item) =>
+      isUnset(item) ? Object.fromEntries(Object.entries(item as object).filter(([key]) => key !== 'selectedOptions')) : item,
+    ),
+  };
 }
 
 function isCoordinate(value: unknown, limit: number): value is number {

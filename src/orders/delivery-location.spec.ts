@@ -178,3 +178,31 @@ describe('idempotencia de POST /orders con ubicación', () => {
     expect(hashRequestBody({ ...body, deliveryLocation: undefined })).not.toBe(hashRequestBody(body));
   });
 });
+
+describe('idempotencia con opciones de producto (items[].selectedOptions)', () => {
+  const item = { productId: 'p1', quantity: 1 };
+  const body = { customerName: 'Ana', deliveryType: 'pickup', paymentMethod: 'cash', items: [item] };
+  const selection = [{ groupId: 'g1', optionId: 'o1' }];
+
+  it('sin selección el hash es EXACTAMENTE el de antes del despliegue: ningún reintento viejo recibe 409', () => {
+    // El DTO trae `selectedOptions: undefined` como clave propia de cada ítem y `canonicalize` la escribiría.
+    const withUnsetKey = { ...body, items: [{ ...item, selectedOptions: undefined }] };
+    expect(hashRequestBody(idempotencyBody(withUnsetKey))).toBe(hashRequestBody(body));
+    expect(hashRequestBody(idempotencyBody({ ...body, items: [{ ...item, selectedOptions: null }] }))).toBe(hashRequestBody(body));
+    // (Sin la quita, la clave `undefined` SÍ cambiaría el hash: por eso existe.)
+    expect(hashRequestBody(withUnsetKey)).not.toBe(hashRequestBody(body));
+  });
+
+  it('la selección forma parte del hash: otras carnes con la misma clave son otro cuerpo (409 idempotency_key_reused)', () => {
+    const a = hashRequestBody(idempotencyBody({ ...body, items: [{ ...item, selectedOptions: selection }] }));
+    const b = hashRequestBody(idempotencyBody({ ...body, items: [{ ...item, selectedOptions: [{ groupId: 'g1', optionId: 'o2' }] }] }));
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(hashRequestBody(body));
+  });
+
+  it('solo se quita la clave de los ítems que no la traen', () => {
+    const mixed = idempotencyBody({ ...body, items: [{ ...item, selectedOptions: undefined }, { ...item, productId: 'p2', selectedOptions: selection }] });
+    expect(Object.keys(mixed.items[0])).not.toContain('selectedOptions');
+    expect(mixed.items[1].selectedOptions).toEqual(selection);
+  });
+});
