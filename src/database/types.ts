@@ -35,8 +35,52 @@ export interface ProductsTable {
   sort_order: Generated<number>;
   image_key: string | null;
   image_mime_type: string | null;
+  /** Días en que se vende (domingo = 0 … sábado = 6, día calendario de America/La_Paz). null = todos los días. */
+  available_weekdays: ColumnType<number[] | null, number[] | null | undefined, number[] | null>;
+  /** «2 a 3 personas». Se muestra en el aviso de delivery. */
+  serves_label: ColumnType<string | null, string | null | undefined, string | null>;
+  /** Minutos de preparación; el aviso de delivery usa el máximo del pedido. */
+  prep_minutes: ColumnType<number | null, number | null | undefined, number | null>;
   created_at: Timestamp;
   updated_at: Timestamp;
+}
+
+export interface ProductOptionGroupsTable {
+  id: Generated<string>;
+  product_id: string;
+  code: string;
+  name: string;
+  min_select: Generated<number>;
+  max_select: Generated<number>;
+  sort_order: Generated<number>;
+  /** true: lo elegido en este grupo se nombra en el aviso de delivery (p. ej. «Tamaño»). */
+  show_in_notice: Generated<boolean>;
+  created_at: Timestamp;
+}
+
+export interface ProductOptionsTable {
+  id: Generated<string>;
+  group_id: string;
+  code: string;
+  name: string;
+  /** numeric(10,2) llega como string del driver pg. */
+  price_delta: Generated<string>;
+  is_available: Generated<boolean>;
+  sort_order: Generated<number>;
+  created_at: Timestamp;
+}
+
+/** Lo elegido en una línea de pedido, congelado al momento de la venta (columna `order_items.selected_options`). */
+export interface OrderItemSelectedOption {
+  groupId: string;
+  optionId: string;
+  groupCode: string;
+  groupName: string;
+  optionCode: string;
+  optionName: string;
+  priceDelta: number;
+  /** Copia de `product_option_groups.show_in_notice` al vender. */
+  showInNotice: boolean;
 }
 
 export interface CustomersTable {
@@ -157,6 +201,11 @@ export interface OrderItemsTable {
   subtotal: string;
   /** Snapshot de nombres de complementos excluidos en esta línea (ej. ["cebolla"]) — nunca un id, ver migración. */
   excluded_complements: string[];
+  /** Opciones elegidas en esta línea (snapshot). `[]` en los productos sin grupos. */
+  selected_options: OptionalJsonArray<OrderItemSelectedOption[]>;
+  /** Snapshot de `products.serves_label` / `prep_minutes` al vender, para el aviso de delivery. */
+  serves_label_snapshot: ColumnType<string | null, string | null | undefined, string | null>;
+  prep_minutes_snapshot: ColumnType<number | null, number | null | undefined, number | null>;
   created_at: Timestamp;
   /** Ronda de la cuenta de mesa en la que se agregó la línea (1 para pedidos normales). */
   round_number: Generated<number>;
@@ -555,6 +604,8 @@ export interface Database {
   categories: CategoriesTable;
   products: ProductsTable;
   product_complements: ProductComplementsTable;
+  product_option_groups: ProductOptionGroupsTable;
+  product_options: ProductOptionsTable;
   customers: CustomersTable;
   idempotency_keys: IdempotencyKeysTable;
   orders: OrdersTable;
