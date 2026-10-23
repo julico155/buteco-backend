@@ -262,6 +262,26 @@ export class PromotionsService {
       );
     }
 
+    // Un combo no puede llevar la selección de opciones de sus componentes (las carnes de una tabla, el tamaño): un producto con
+    // grupos obligatorios no entra en una promoción.
+    const needsOptions = items.length
+      ? await trx
+          .selectFrom('product_option_groups')
+          .select('product_id')
+          .distinct()
+          .where('product_id', 'in', items.map((item) => item.productId))
+          .where('min_select', '>', 0)
+          .execute()
+      : [];
+    if (needsOptions.length > 0) {
+      throw new DomainException(
+        'promotion_product_requires_options',
+        HttpStatus.BAD_REQUEST,
+        'Un producto con opciones obligatorias (carnes, tamaño) no puede formar parte de una promoción.',
+        { productIds: needsOptions.map((row) => row.product_id) },
+      );
+    }
+
     await trx.deleteFrom('promotion_items').where('promotion_id', '=', promotionId).execute();
     try {
       await trx

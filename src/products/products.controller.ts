@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Res,
   UseGuards,
@@ -21,6 +22,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { SetAvailabilityDto } from './dto/set-availability.dto';
 import { UploadProductImageDto } from './dto/upload-product-image.dto';
+import { ReplaceProductOptionGroupsDto } from './dto/product-option-groups.dto';
 
 @Controller('products')
 export class ProductsController {
@@ -45,6 +47,22 @@ export class ProductsController {
   @Roles('admin')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProductDto) {
     return this.products.update(id, dto);
+  }
+
+  // Reemplaza los grupos de opciones y sus opciones (carnes de una tabla, tamaño...) conservando los ids por `code`.
+  @Put(':id/option-groups')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  replaceOptionGroups(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReplaceProductOptionGroupsDto) {
+    return this.products.replaceOptionGroups(id, dto);
+  }
+
+  // «Se acabó esta carne»: como el agotado de un producto, también es decisión de piso de cocina.
+  @Patch('options/:optionId/availability')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'cashier')
+  setOptionAvailability(@Param('optionId', ParseUUIDPipe) optionId: string, @Body() dto: SetAvailabilityDto) {
+    return this.products.setOptionAvailability(optionId, dto.available);
   }
 
   // Marcar agotado/disponible es una decisión de piso de cocina, no solo de admin.
