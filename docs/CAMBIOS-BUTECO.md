@@ -154,7 +154,12 @@ Contrato, ejemplos y errores en [carta-opciones-producto.md](carta-opciones-prod
 **No verificado:**
 - Contra el **banco real**: solo se probó con un simulado que imita sus
   endpoints (`generateQR`, `statusQR`, `cancelQR`).
-- La suite **e2e** de `test/` (necesita Postgres real).
+- La suite **e2e** de `test/` (necesita Postgres real). Se corrió contra Postgres 16:
+  pasan `idempotency`, `payment-attempts-concurrency` y `product-options`; **fallan
+  3 suites (19 tests)**: `web-location`, `agent-locations` y
+  `order-replacement-concurrency`. Fallaban igual antes de integrar la carta
+  (comprobado sobre `27c3456`): arman los servicios a mano con un `config` vacío
+  (`this.config.get is not a function`). Hay que actualizar esos tests.
 - Las integraciones con el gateway de WhatsApp/Telegram y con Mapbox.
 - Los scripts de recorrido contra la API real **no están en el repo** (se
   corrieron desde una carpeta temporal).
