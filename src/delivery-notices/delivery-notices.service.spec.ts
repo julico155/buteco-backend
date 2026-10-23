@@ -21,7 +21,11 @@ const eligibleOrder = {
   distance_meters: 4800,
 };
 
-function createService(order: Record<string, unknown> | undefined = eligibleOrder, notify = jest.fn()) {
+function createService(
+  order: Record<string, unknown> | undefined = eligibleOrder,
+  notify = jest.fn(),
+  extra: { items?: Record<string, unknown>[]; productRows?: Record<string, unknown>[] } = {},
+) {
   const ordersQuery = {
     leftJoin: jest.fn(),
     select: jest.fn(),
@@ -35,7 +39,11 @@ function createService(order: Record<string, unknown> | undefined = eligibleOrde
   const itemQuery = {
     select: jest.fn(),
     where: jest.fn(),
-    execute: jest.fn().mockResolvedValue([{ product_name_snapshot: 'Pizza', quantity: 1 }]),
+    execute: jest.fn().mockResolvedValue(
+      extra.items ?? [
+        { product_name_snapshot: 'Pizza', quantity: 1, serves_label_snapshot: null, prep_minutes_snapshot: null, selected_options: [] },
+      ],
+    ),
   };
   itemQuery.select.mockReturnValue(itemQuery);
   itemQuery.where.mockReturnValue(itemQuery);
@@ -47,8 +55,8 @@ function createService(order: Record<string, unknown> | undefined = eligibleOrde
       {
         combo_quantity: 1,
         components_snapshot: [
-          { name: 'Pizza', quantity: 2 },
-          { name: 'Hamburguesa', quantity: 1 },
+          { productId: 'prod-pizza', name: 'Pizza', quantity: 2 },
+          { productId: 'prod-hamburguesa', name: 'Hamburguesa', quantity: 1 },
         ],
       },
     ]),
@@ -56,8 +64,13 @@ function createService(order: Record<string, unknown> | undefined = eligibleOrde
   promotionQuery.select.mockReturnValue(promotionQuery);
   promotionQuery.where.mockReturnValue(promotionQuery);
 
+  const productQuery = { select: jest.fn(), where: jest.fn(), execute: jest.fn().mockResolvedValue(extra.productRows ?? []) };
+  productQuery.select.mockReturnValue(productQuery);
+  productQuery.where.mockReturnValue(productQuery);
+
   const db = {
     selectFrom: jest.fn((table: string) => {
+      if (table === 'products') return productQuery;
       if (table === 'orders') return ordersQuery;
       if (table === 'order_items') return itemQuery;
       if (table === 'order_promotions') return promotionQuery;
@@ -89,10 +102,60 @@ describe('DeliveryNoticesService', () => {
       targetRef: 'order-1',
       payload: expect.objectContaining({
         chatRef: 'delivery-group',
-        text: expect.stringContaining('  3x Pizza'),
+        text: expect.stringContaining('  3 x Pizza'),
       }),
     });
-    expect(notify.mock.calls[0][0].payload.text).toContain('  1x Hamburguesa');
+    expect(notify.mock.calls[0][0].payload.text).toContain('  1 x Hamburguesa');
+  });
+
+  it('names each line with its people and ends with the longest preparation time', async () => {
+    const notify = jest.fn().mockResolvedValue(undefined);
+    const { service } = createService(eligibleOrder, notify, {
+      items: [
+        {
+          product_name_snapshot: 'Tabla de Zeus',
+          quantity: 1,
+          serves_label_snapshot: '2 a 3 personas',
+          prep_minutes_snapshot: 40,
+          selected_options: [{ optionName: 'Pollo', showInNotice: false }],
+        },
+        {
+          product_name_snapshot: 'Tabla de Zeus',
+          quantity: 1,
+          serves_label_snapshot: '2 a 3 personas',
+          prep_minutes_snapshot: 40,
+          selected_options: [{ optionName: 'Costilla de res', showInNotice: false }],
+        },
+        {
+          product_name_snapshot: 'Tablita de pollo',
+          quantity: 1,
+          serves_label_snapshot: null,
+          prep_minutes_snapshot: 25,
+          selected_options: [{ optionName: '1 persona', showInNotice: true }],
+        },
+      ],
+      // El combo de eligibleOrder trae Pizza y Hamburguesa: la Hamburguesa tarda 15.
+      productRows: [{ prep_minutes: 15 }, { prep_minutes: null }],
+    });
+
+    await service.notifyConfirmed('order-1');
+
+    const text = notify.mock.calls[0][0].payload.text as string;
+    expect(text).toContain('  2 x Tabla de Zeus (2 a 3 personas)');
+    expect(text).toContain('  1 x Tablita de pollo (1 persona)');
+    // Las carnes elegidas no se nombran en el aviso.
+    expect(text).not.toContain('Pollo');
+    expect(text).not.toContain('Costilla');
+    expect(text.split('\n').at(-1)).toBe('Tiempo de preparación: ~40 min');
+  });
+
+  it('prints no preparation line when no product declares a time', async () => {
+    const notify = jest.fn().mockResolvedValue(undefined);
+    const { service } = createService(eligibleOrder, notify);
+
+    await service.notifyConfirmed('order-1');
+
+    expect(notify.mock.calls[0][0].payload.text).not.toContain('Tiempo de preparación');
   });
 
   it.each([

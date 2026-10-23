@@ -5,7 +5,8 @@ import { AppConfig } from '../config/configuration';
 import { KYSELY } from '../database/database.module';
 import { Database, OrderPromotionComponentSnapshot } from '../database/types';
 import { NotificationsOutService } from '../notifications-out/notifications-out.service';
-import { buildDeliveryNotice, DeliveryNoticeItem, mergeNoticeItems } from './delivery-notice';
+import { maxPrepMinutes } from '../orders/order-item-options';
+import { buildDeliveryNotice, DeliveryNoticeItem, mergeNoticeItems, noticeItemName } from './delivery-notice';
 
 @Injectable()
 export class DeliveryNoticesService {
@@ -71,7 +72,13 @@ export class DeliveryNoticesService {
       const [orderItems, promotions] = await Promise.all([
         this.db
           .selectFrom('order_items')
-          .select(['product_name_snapshot', 'quantity'])
+          .select([
+            'product_name_snapshot',
+            'quantity',
+            'serves_label_snapshot',
+            'prep_minutes_snapshot',
+            'selected_options',
+          ])
           .where('order_id', '=', orderId)
           .execute(),
         this.db
@@ -82,8 +89,22 @@ export class DeliveryNoticesService {
       ]);
 
       const items = mergeNoticeItems([
-        ...orderItems.map((item) => ({ name: item.product_name_snapshot, quantity: item.quantity })),
+        ...orderItems.map((item) => ({
+          name: noticeItemName(item.product_name_snapshot, item.serves_label_snapshot, item.selected_options),
+          quantity: item.quantity,
+        })),
         ...promotionItems(promotions),
+      ]);
+      // Tiempo de preparación: el máximo del pedido (la cocina arma las líneas en paralelo). Los componentes de un combo se
+      // leen del catálogo vivo porque su snapshot no guarda el tiempo.
+      const comboProductIds = promotions.flatMap((p) => p.components_snapshot.map((c) => c.productId));
+      const comboPrep =
+        comboProductIds.length > 0
+          ? await this.db.selectFrom('products').select('prep_minutes').where('id', 'in', comboProductIds).execute()
+          : [];
+      const prepMinutes = maxPrepMinutes([
+        ...orderItems.map((item) => item.prep_minutes_snapshot),
+        ...comboPrep.map((product) => product.prep_minutes),
       ]);
       const deliveryAmount = Number(order.delivery_base_amount) + Number(order.delivery_surcharge_amount);
       const text = buildDeliveryNotice({
@@ -100,6 +121,7 @@ export class DeliveryNoticesService {
         latitude: order.latitude,
         longitude: order.longitude,
         distanceMeters: order.distance_meters,
+        prepMinutes,
       });
 
       await this.notifications.notifyNow({

@@ -1,6 +1,31 @@
 export interface DeliveryNoticeItem {
+  /** Ya con las personas / el tamaño (ver `noticeItemName`): es también la clave con la que se juntan las líneas. */
   name: string;
   quantity: number;
+}
+
+/**
+ * Nombre de la línea para el repartidor: «Tabla de Zeus (2 a 3 personas)», «Tablita de pollo (1 persona)». Las personas salen de
+ * `serves_label` del producto o de lo elegido en un grupo marcado `showInNotice` (el «Tamaño»). Las carnes elegidas NO se
+ * nombran: el repartidor no las necesita, y por eso dos tablas iguales con otras carnes se juntan en una sola línea.
+ */
+export function noticeItemName(
+  productName: string,
+  servesLabel: string | null | undefined,
+  selectedOptions: ReadonlyArray<{ optionName: string; showInNotice: boolean }> | undefined,
+): string {
+  const parts: string[] = [];
+  const serves = servesLabel?.trim();
+  if (serves) parts.push(serves);
+  for (const option of selectedOptions ?? []) {
+    if (option.showInNotice) parts.push(option.optionName);
+  }
+  return parts.length === 0 ? productName : `${productName} (${parts.join(', ')})`;
+}
+
+/** «Tiempo de preparación: ~40 min». Sin tiempo en ningún producto del pedido, no se imprime. */
+export function prepTimeLine(prepMinutes: number | null | undefined): string | null {
+  return typeof prepMinutes === 'number' && prepMinutes > 0 ? `Tiempo de preparación: ~${prepMinutes} min` : null;
 }
 
 export interface DeliveryNoticeInput {
@@ -16,6 +41,8 @@ export interface DeliveryNoticeInput {
   latitude: number;
   longitude: number;
   distanceMeters: number | null;
+  /** Máximo de `prep_minutes` de los productos del pedido (se cocinan en paralelo); null si ninguno lo declara. */
+  prepMinutes?: number | null;
 }
 
 /** Conserva el orden de la primera aparición y suma productos de combos y líneas sueltas. */
@@ -52,7 +79,7 @@ export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
 
   const itemCount = input.items.reduce((total, item) => total + item.quantity, 0);
   lines.push(`Pedido (${itemCount} ${itemCount === 1 ? 'producto' : 'productos'}):`);
-  for (const item of input.items) lines.push(`  ${item.quantity}x ${item.name}`);
+  for (const item of input.items) lines.push(`  ${item.quantity} x ${item.name}`);
   lines.push('');
 
   const distance = input.distanceMeters === null ? '' : ` · ${(input.distanceMeters / 1000).toFixed(1)} km`;
@@ -78,6 +105,9 @@ export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
   }
 
   lines.push(`Ubicación: ${mapsLink(input.latitude, input.longitude)}`);
+  // Al final de todo el desglose.
+  const prep = prepTimeLine(input.prepMinutes);
+  if (prep !== null) lines.push(prep);
   return lines.join('\n');
 }
 
