@@ -148,6 +148,10 @@ fecha, así que se puede repetir (incluso el mismo día). Para distinguirlos, `G
 **hora de La Paz**: un pedido de las 23:03 del 16 cae en el 16 aunque en UTC ya sea
 el 17. Sin esos parámetros no filtra por fecha. `createdAt` sigue viniendo en UTC.
 
+### Fase 7: saldo prepago y comisión del agente
+
+Los pedidos del agente (canal `whatsapp`) pagados por QR descuentan una comisión (`AGENT_COMMISSION_PERCENT`, sobre los productos, sin envío) de un saldo que el negocio recarga con un QR del banco (segundo juego de llaves `BANECO_TOPUP_*`). Se descuenta recién al cobrarse el QR, se devuelve si el pedido cobrado se cancela, y al pasar el sobregiro (`AGENT_BALANCE_OVERDRAFT_LIMIT`) los pedidos nuevos del agente dan `409 agent_service_suspended`. Apagado por defecto. Migración `1700000017000`. Detalle en [saldo-comision.md](saldo-comision.md).
+
 ## 4. Cómo se verificó
 
 | Qué | Resultado |

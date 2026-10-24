@@ -22,6 +22,7 @@ import { ReportsModule } from './reports/reports.module';
 import { AgentLocationsModule } from './agent-locations/agent-locations.module';
 import { TablesModule } from './tables/tables.module';
 import { OrderReplacementModule } from './order-replacement/order-replacement.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { OrderReplacementModule } from './order-replacement/order-replacement.mo
     AgentLocationsModule,
     TablesModule,
     OrderReplacementModule,
+    BillingModule,
   ],
 })
 export class AppModule {}

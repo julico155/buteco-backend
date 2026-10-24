@@ -2,7 +2,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AppConfig } from '../config/configuration';
+import { AppConfig, BanecoCredentials } from '../config/configuration';
 
 export interface GenerateQrParams {
   transactionId: string;
@@ -37,7 +37,15 @@ export class BanecoClientService {
   private cachedToken: string | null = null;
   private cachedEncryptedAccount: string | null = null;
 
-  constructor(private readonly config: ConfigService<AppConfig, true>) {}
+  constructor(protected readonly config: ConfigService<AppConfig, true>) {}
+
+  /**
+   * Juego de llaves que usa esta instancia. Las recargas de saldo (`BanecoTopupClientService`) lo sobreescriben con su propio
+   * juego: cada instancia tiene su token cacheado, así que las dos cuentas nunca se mezclan.
+   */
+  protected credentials(): BanecoCredentials {
+    return this.config.get('baneco', { infer: true });
+  }
 
   async generateQR(params: GenerateQrParams): Promise<GenerateQrResult> {
     const accountCredit = await this.getEncryptedAccount();
@@ -77,13 +85,13 @@ export class BanecoClientService {
 
   private async getEncryptedAccount(): Promise<string> {
     if (this.cachedEncryptedAccount) return this.cachedEncryptedAccount;
-    const { aesKey, account } = this.config.get('baneco', { infer: true });
+    const { aesKey, account } = this.credentials();
     this.cachedEncryptedAccount = await this.encrypt(account, aesKey);
     return this.cachedEncryptedAccount;
   }
 
   private async encrypt(text: string, aesKey: string): Promise<string> {
-    const { baseUrl } = this.config.get('baneco', { infer: true });
+    const { baseUrl } = this.credentials();
     const url = new URL(`${baseUrl}/api/authentication/encrypt`);
     url.searchParams.set('text', text);
     url.searchParams.set('aesKey', aesKey);
@@ -95,7 +103,7 @@ export class BanecoClientService {
   }
 
   private async authenticate(): Promise<string> {
-    const { baseUrl, username, password, aesKey } = this.config.get('baneco', { infer: true });
+    const { baseUrl, username, password, aesKey } = this.credentials();
     const encryptedPassword = await this.encrypt(password, aesKey);
     const response = await fetch(`${baseUrl}/api/authentication/authenticate`, {
       method: 'POST',
@@ -119,7 +127,7 @@ export class BanecoClientService {
     path: string,
     body: unknown,
   ): Promise<T> {
-    const { baseUrl } = this.config.get('baneco', { infer: true });
+    const { baseUrl } = this.credentials();
     const token = this.cachedToken ?? (await this.authenticate());
 
     const doRequest = (bearer: string) => sendJson(method, `${baseUrl}${path}`, bearer, body);

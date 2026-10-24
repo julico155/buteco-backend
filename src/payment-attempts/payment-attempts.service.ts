@@ -10,6 +10,7 @@ import {
 import { NotificationsOutService } from '../notifications-out/notifications-out.service';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { DeliveryNoticesService } from '../delivery-notices/delivery-notices.service';
+import { chargeCommission } from '../billing/agent-billing';
 
 import { PaymentAttemptResponse } from './dto/payment-attempt-response.dto';
 import { DecidePaymentAttemptResult } from './dto/payment-attempt-response.dto';
@@ -223,6 +224,7 @@ export class PaymentAttemptsService {
         'delivery_type',
         'order_number',
         'reservation_deposit',
+        'agent_commission_amount',
       ])
       .where('id', '=', orderId)
       .executeTakeFirstOrThrow();
@@ -285,6 +287,12 @@ export class PaymentAttemptsService {
         'El pedido ya fue cancelado (posiblemente reemplazado) — no se puede aplicar este pago.',
         { orderId },
       );
+    }
+    // Comisión del agente: se descuenta recién ahora que el QR quedó cobrado, en la MISMA transacción que marca el pedido como
+    // pagado (o se aplican las dos cosas o ninguna). Nunca falla por saldo: el cliente ya pagó en el banco, así que el límite de
+    // sobregiro frena pedidos nuevos, no un cobro hecho. Idempotente por pedido.
+    if (paymentStatus === 'paid' && current.agent_commission_amount) {
+      await chargeCommission(trx, orderId);
     }
     return {
       customerId: order.customer_id,

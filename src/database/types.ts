@@ -186,6 +186,9 @@ export interface OrdersTable {
   deposit_credit_amount: Generated<string>;
   /** Pedido que representa el adelanto de una reserva (no es una venta de comida). */
   reservation_deposit: Generated<boolean>;
+  /** Comisión del agente congelada al crear el pedido (canal whatsapp + QR). Null = sin comisión. Migración 1700000017000. */
+  agent_commission_percent: string | null;
+  agent_commission_amount: string | null;
   created_at: Timestamp;
   updated_at: Timestamp;
 }
@@ -275,7 +278,7 @@ export interface PaymentOptionsTable {
 export interface OrderDayCountersTable {
   day: string;
   last_number: Generated<number>;
-  updated_at: Generated<Timestamp>;
+  updated_at: Timestamp;
 }
 
 export interface DeliveryTariffBandsTable {
@@ -580,6 +583,46 @@ export interface DashboardUsersTable {
 export type NotificationJobChannel = 'whatsapp' | 'telegram';
 export type NotificationJobStatus = 'pending' | 'sending' | 'sent' | 'failed';
 
+export type BalanceTopupStatus = 'pending' | 'confirmed' | 'expired' | 'cancelled';
+
+/** Recarga de saldo del negocio: un QR del banco (con el segundo juego de llaves). */
+export interface BalanceTopupsTable {
+  id: Generated<string>;
+  amount: string;
+  status: Generated<BalanceTopupStatus>;
+  qr_id: string;
+  transaction_id: string;
+  due_date: ColumnType<string, string, string>;
+  qr_image_base64: string;
+  raw_generate_response: JSONColumnType<Record<string, unknown>> | null;
+  raw_status_response: JSONColumnType<Record<string, unknown>> | null;
+  created_by: string | null;
+  paid_at: Timestamp | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export type BalanceLedgerType = 'topup' | 'commission' | 'commission_reversal' | 'adjustment';
+
+/** Libro de movimientos del saldo: solo se agregan filas; `amount` lleva signo. */
+export interface BalanceLedgerTable {
+  id: Generated<string>;
+  type: BalanceLedgerType;
+  amount: string;
+  order_id: string | null;
+  topup_id: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: Timestamp;
+}
+
+/** Una sola fila: si ya se avisó que el saldo está bajo (se rearma al volver a subir). */
+export interface BillingStateTable {
+  id: Generated<boolean>;
+  low_balance_notified: Generated<boolean>;
+  updated_at: Timestamp;
+}
+
 export interface NotificationJobsTable {
   id: Generated<string>;
   kind: string;
@@ -621,6 +664,9 @@ export interface Database {
   order_day_counters: OrderDayCountersTable;
   dashboard_users: DashboardUsersTable;
   notification_jobs: NotificationJobsTable;
+  balance_topups: BalanceTopupsTable;
+  balance_ledger: BalanceLedgerTable;
+  billing_state: BillingStateTable;
   floors: FloorsTable;
   tables: TablesTable;
   reservation_settings: ReservationSettingsTable;

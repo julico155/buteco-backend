@@ -57,6 +57,13 @@ import { normalizePhone } from '../customers/normalize-phone';
 import { requiresPaymentBeforeHandover } from './payment-gate';
 import { decideLocationAttach, LocationAttachDecision } from './location-attach';
 import { buildQrConfirmationContext, qrAmountFor } from './qr-confirmation-context';
+import {
+  agentBillingConfig,
+  assertAgentCanOrder,
+  commissionFor,
+  paysAgentCommission,
+  reverseCommission,
+} from '../billing/agent-billing';
 import { assertDeliveryLocationForWrite, assertWebDeliveryLocation, DeliveryLocationInput, idempotencyBody, sameDeliveryLocation } from './delivery-location';
 import {
   isAvailableOnDay,
@@ -102,6 +109,11 @@ export interface CheckoutCartInput {
    * ya aceptó.
    */
   skipAvailabilityChecks?: boolean;
+  /**
+   * Solo lo pasa LateOrderRequestsService.accept(): la solicitud ya pasó el bloqueo por saldo al crearse y el cliente ya tiene la
+   * promesa del local — no se rechaza al aceptar (un rechazo ahí sería permanente). La comisión se congela igual.
+   */
+  skipBillingGate?: boolean;
   /** Pedido ya cobrado fuera del sistema (canal `external`): nace `paid`. */
   settledExternally?: boolean;
   notes: string | null;
@@ -1061,6 +1073,17 @@ export class OrdersService {
     const deliveryPricing = needsDelivery ? ('dynamic' as const) : null;
     const deliveryQuoteStatus = needsDelivery ? ('pending' as const) : null;
 
+    // Comisión del agente (canal whatsapp + QR): se congela ahora y se descuenta recién al cobrarse el QR. Con la variable
+    // AGENT_COMMISSION_PERCENT sin definir, billing es null y nada de esto corre.
+    const billing = agentBillingConfig(this.config);
+    const commission =
+      billing && paysAgentCommission(input.channel, input.paymentMethod)
+        ? { percent: billing.commissionPercent, amount: commissionFor(subtotal, billing.commissionPercent) }
+        : null;
+    if (billing && commission && commission.amount > 0 && !input.skipBillingGate) {
+      await assertAgentCanOrder(trx, billing, commission.amount);
+    }
+
     const { orderNumber, numberingSessionId } = await this.assignOrderNumber(trx);
 
     const orderRow = await trx
@@ -1082,6 +1105,12 @@ export class OrdersService {
         delivery_quote_status: deliveryQuoteStatus,
         confirmed_at: confirmedAt,
         register_session_id: input.registerSessionId ?? null,
+        ...(commission && commission.amount > 0
+          ? {
+              agent_commission_percent: commission.percent.toFixed(2),
+              agent_commission_amount: commission.amount.toFixed(2),
+            }
+          : {}),
         ...(input.settledExternally ? { payment_status: 'paid' as const } : {}),
       })
       .returningAll()
@@ -1259,6 +1288,12 @@ export class OrdersService {
       dto.deliveryType,
       subtotal,
     );
+    // Mismo bloqueo por saldo que un pedido normal: no se le promete al cliente algo que el agente no puede tomar. Con el subtotal
+    // informativo; al aceptarse ya no se vuelve a bloquear (ver skipBillingGate).
+    const billing = agentBillingConfig(this.config);
+    if (billing && paysAgentCommission(dto.channel, dto.paymentMethod)) {
+      await assertAgentCanOrder(this.db, billing, commissionFor(subtotal, billing.commissionPercent));
+    }
 
     const expiresAt = lateRequestExpiryFor(
       now,
@@ -1865,6 +1900,13 @@ export class OrdersService {
         'status_conflict',
         HttpStatus.CONFLICT,
         'El estado del pedido cambió antes de aplicar esta transición; reintenta.',
+      );
+    }
+
+    // Un pedido cobrado que se cancela devuelve su comisión (idempotente; sin efecto si nunca se cobró).
+    if (to === 'cancelled' && order.agent_commission_amount && order.payment_status === 'paid') {
+      await reverseCommission(this.db, orderId).catch((error: Error) =>
+        this.logger.error(`No se pudo devolver la comisión del pedido ${orderId}: ${error.message}`),
       );
     }
 
