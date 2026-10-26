@@ -12,22 +12,17 @@ import {
   ValidationError,
 } from '../common/exceptions/domain-exception';
 import { IdempotencyService } from '../common/idempotency/idempotency.service';
-import { dateInBolivia } from '../common/time/service-window';
+import { dateInBolivia, startOfBoliviaDay } from '../common/time/service-window';
 import { localWeekdayAndMinute } from '../common/time/weekly-schedule';
 import { QrPaymentsService } from '../bank-qr/qr-payments.service';
 import { OperationalSettingsService } from '../operational-settings/operational-settings.service';
 import { CreateReservationDto } from './dto/reservation.dto';
 import {
-  CandidateTable,
   depositOutcomeOnCancel,
-  maxPartySize,
-  overlaps,
-  pickTable,
+  fitsInDay,
   ReservationTimingSettings,
   slotsForDate,
 } from './reservation-rules';
-import { isUniqueViolation } from './tables.service';
-import { TableAccountsService, TableAccountResponse } from './table-accounts.service';
 
 import { ReservationSettingsView, PublicReservationResponse, StaffReservationResponse, AvailabilityResponse } from './dto/tables-response.dto';
 export { ReservationSettingsView, PublicReservationResponse, StaffReservationResponse, AvailabilityResponse };
@@ -38,7 +33,6 @@ const BLOCKING_STATUSES: ReservationStatus[] = ['pending_payment', 'confirmed', 
 type ReservationRow = {
   id: string;
   reservation_number: string;
-  table_id: string;
   party_size: number;
   customer_name: string;
   customer_phone: string;
@@ -65,7 +59,6 @@ export class ReservationsService {
     private readonly idempotency: IdempotencyService,
     private readonly qrPayments: QrPaymentsService,
     private readonly operationalSettings: OperationalSettingsService,
-    private readonly accounts: TableAccountsService,
   ) {}
 
   // ---- Configuración ----
@@ -86,7 +79,7 @@ export class ReservationsService {
       cancelRefundHours: row.cancel_refund_hours,
       minLeadMinutes: row.min_lead_minutes,
       maxDaysAhead: row.max_days_ahead,
-      maxOccupancyPercent: row.max_occupancy_percent,
+      maxPeoplePerDay: row.max_people_per_day,
       lastSlotBeforeCloseMinutes: row.last_slot_before_close_minutes,
     };
   }
@@ -104,9 +97,7 @@ export class ReservationsService {
         ...(patch.cancelRefundHours !== undefined ? { cancel_refund_hours: patch.cancelRefundHours } : {}),
         ...(patch.minLeadMinutes !== undefined ? { min_lead_minutes: patch.minLeadMinutes } : {}),
         ...(patch.maxDaysAhead !== undefined ? { max_days_ahead: patch.maxDaysAhead } : {}),
-        ...(patch.maxOccupancyPercent !== undefined
-          ? { max_occupancy_percent: patch.maxOccupancyPercent }
-          : {}),
+        ...(patch.maxPeoplePerDay !== undefined ? { max_people_per_day: patch.maxPeoplePerDay } : {}),
         ...(patch.lastSlotBeforeCloseMinutes !== undefined
           ? { last_slot_before_close_minutes: patch.lastSlotBeforeCloseMinutes }
           : {}),
@@ -119,43 +110,31 @@ export class ReservationsService {
 
   // ---- Disponibilidad (landing) ----
 
+  /**
+   * Horarios libres de un día para un grupo. El cupo es por PERSONAS del día (no por mesa): si el grupo cabe dentro del máximo
+   * de personas con reserva, se ofrecen todos los horarios del día; si no, ninguno.
+   */
   async availability(date: string, partySize: number): Promise<AvailabilityResponse> {
     const settings = await this.getSettings();
-    const tables = await this.activeTables(this.db);
-    const maxParty = maxPartySize(tables);
     const base = {
       date,
       partySize,
-      maxPartySize: maxParty,
+      maxPartySize: settings.maxPeoplePerDay,
       depositAmount: settings.depositAmount,
       paymentTtlMinutes: settings.paymentTtlMinutes,
     };
-    if (!settings.enabled || partySize < 1 || partySize > maxParty) return { ...base, slots: [] };
+    if (!settings.enabled || partySize < 1 || partySize > settings.maxPeoplePerDay) return { ...base, slots: [] };
 
     const slots = await this.openSlots(date, settings);
     if (slots.length === 0) return { ...base, slots: [] };
 
-    const now = new Date();
-    const windows = await this.blockingWindows(this.db, slots[0], this.endOf(slots[slots.length - 1], settings), now);
-    const busy = await this.busyTableIds(this.db);
-
-    const free = slots.filter((startsAt) => {
-      const blocksUntil = this.endOf(startsAt, settings);
-      return (
-        pickTable({
-          tables,
-          windows,
-          startsAt,
-          blocksUntil,
-          partySize,
-          maxOccupancyPercent: settings.maxOccupancyPercent,
-          busyTableIds: this.busyFor(startsAt, blocksUntil, busy, now),
-        }) !== null
-      );
-    });
+    const reservedPeople = await this.reservedPeopleOnDay(this.db, date, new Date());
+    if (!fitsInDay({ reservedPeople, partySize, maxPeoplePerDay: settings.maxPeoplePerDay })) {
+      return { ...base, slots: [] };
+    }
     return {
       ...base,
-      slots: free.map((startsAt) => ({ startsAt: startsAt.toISOString(), time: localTime(startsAt) })),
+      slots: slots.map((startsAt) => ({ startsAt: startsAt.toISOString(), time: localTime(startsAt) })),
     };
   }
 
@@ -233,38 +212,29 @@ export class ReservationsService {
       );
     }
 
-    // Serializa las reservas: bloquea las mesas activas en orden fijo.
-    const tables = await this.activeTables(trx, true);
-    const maxParty = maxPartySize(tables);
-    if (dto.partySize > maxParty) {
+    // Serializa las reservas DEL MISMO DÍA: dos solicitudes a la vez no pueden pasarse del cupo juntas. El candado dura lo que
+    // la transacción y es por fecha, así que reservar otro día no espera.
+    const day = dateInBolivia(startsAt);
+    await sql`select pg_advisory_xact_lock(hashtext(${'reservations:' + day}))`.execute(trx);
+
+    if (dto.partySize > settings.maxPeoplePerDay) {
       throw new DomainException(
         'party_too_large',
         HttpStatus.CONFLICT,
-        `Reservamos para hasta ${maxParty} personas.`,
-        { maxPartySize: maxParty },
+        `Reservamos para hasta ${settings.maxPeoplePerDay} personas.`,
+        { maxPartySize: settings.maxPeoplePerDay },
       );
     }
-
-    const blocksUntil = this.endOf(startsAt, settings);
-    const windows = await this.blockingWindows(trx, startsAt, blocksUntil, now);
-    const busy = await this.busyTableIds(trx);
-    const table = pickTable({
-      tables,
-      windows,
-      startsAt,
-      blocksUntil,
-      partySize: dto.partySize,
-      maxOccupancyPercent: settings.maxOccupancyPercent,
-      busyTableIds: this.busyFor(startsAt, blocksUntil, busy, now),
-    });
-    if (!table) {
+    const reservedPeople = await this.reservedPeopleOnDay(trx, day, now);
+    if (!fitsInDay({ reservedPeople, partySize: dto.partySize, maxPeoplePerDay: settings.maxPeoplePerDay })) {
       throw new DomainException(
         'no_availability',
         HttpStatus.CONFLICT,
-        'No hay mesa disponible para ese horario.',
+        'Ya no quedan lugares para ese día.',
         { startsAt: startsAt.toISOString(), partySize: dto.partySize },
       );
     }
+    const blocksUntil = this.endOf(startsAt, settings);
 
     const number = await sql<{ n: string }>`select nextval('reservation_number_seq') as n`.execute(trx);
     const reservationNumber = `RES-${String(number.rows[0].n).padStart(4, '0')}`;
@@ -277,7 +247,6 @@ export class ReservationsService {
       .insertInto('reservations')
       .values({
         reservation_number: reservationNumber,
-        table_id: table.id,
         party_size: dto.partySize,
         customer_name: customerName.slice(0, 100),
         customer_phone: customerPhone,
@@ -335,9 +304,7 @@ export class ReservationsService {
   async list(filter: { date?: string; status?: ReservationStatus }): Promise<StaffReservationResponse[]> {
     let query = this.db
       .selectFrom('reservations')
-      .innerJoin('tables', 'tables.id', 'reservations.table_id')
       .selectAll('reservations')
-      .select(['tables.label as table_label', 'tables.seats as table_seats'])
       .orderBy('reservations.starts_at');
     if (filter.status) query = query.where('reservations.status', '=', filter.status);
     if (filter.date) {
@@ -350,7 +317,7 @@ export class ReservationsService {
       query = query.where('reservations.status', 'in', BLOCKING_STATUSES);
     }
     const rows = await query.limit(500).execute();
-    return rows.map((row) => toStaff(row, row.table_label, row.table_seats));
+    return rows.map(toStaff);
   }
 
   async getStaff(id: string): Promise<StaffReservationResponse> {
@@ -447,82 +414,6 @@ export class ReservationsService {
 
   // ---- Operación en el local ----
 
-  /** El cliente llegó: se abre la cuenta de su mesa con el adelanto como crédito. */
-  async seat(
-    id: string,
-    opts: { tableId?: string; staffUsername: string },
-  ): Promise<TableAccountResponse> {
-    await this.syncPayments(id);
-    const tableId = await this.db.transaction().execute(async (trx) => {
-      const row = await trx
-        .selectFrom('reservations')
-        .selectAll()
-        .where('id', '=', id)
-        .forUpdate()
-        .executeTakeFirst();
-      if (!row) throw new NotFoundDomainError('reservation', id);
-      if (row.status !== 'confirmed') {
-        throw new DomainException(
-          'reservation_not_confirmed',
-          HttpStatus.CONFLICT,
-          row.status === 'pending_payment'
-            ? 'La reserva todavía no pagó el adelanto.'
-            : 'La reserva no está confirmada.',
-          { status: row.status },
-        );
-      }
-
-      const target = opts.tableId ?? row.table_id;
-      if (target !== row.table_id) {
-        const tableRow = await trx
-          .selectFrom('tables')
-          .select(['id', 'seats', 'is_active'])
-          .where('id', '=', target)
-          .executeTakeFirst();
-        if (!tableRow) throw new NotFoundDomainError('table', target);
-        if (!tableRow.is_active || tableRow.seats < row.party_size) {
-          throw new DomainException(
-            'table_not_suitable',
-            HttpStatus.CONFLICT,
-            'La mesa elegida no está disponible o no alcanza para el grupo.',
-          );
-        }
-      }
-
-      try {
-        const opened = await this.accounts.openInTransaction(trx, target, {
-          customerName: row.customer_name,
-          notes: `Reserva ${row.reservation_number}`,
-          staffUsername: opts.staffUsername,
-          depositCreditAmount: row.deposit_status === 'paid' ? Number(row.deposit_amount) : 0,
-        });
-        await trx
-          .updateTable('reservations')
-          .set({
-            status: 'seated',
-            table_id: target,
-            account_order_id: opened.order.id,
-            deposit_status: row.deposit_status === 'paid' ? 'applied' : row.deposit_status,
-            updated_at: new Date(),
-          })
-          .where('id', '=', id)
-          .execute();
-      } catch (error) {
-        if (isUniqueViolation(error)) {
-          throw new DomainException(
-            'table_already_open',
-            HttpStatus.CONFLICT,
-            'La mesa ya tiene una cuenta abierta: elegí otra mesa.',
-            { tableId: target },
-          );
-        }
-        throw error;
-      }
-      return target;
-    });
-    return this.accounts.getAccount(tableId);
-  }
-
   async markNoShow(id: string): Promise<StaffReservationResponse> {
     await this.syncPayments(id);
     await this.db.transaction().execute(async (trx) => {
@@ -561,54 +452,6 @@ export class ReservationsService {
         'Esta reserva no tiene una devolución pendiente.',
       );
     }
-    return this.staffView(this.db, id);
-  }
-
-  /** Cambia la mesa asignada (el cajero decide en el momento). */
-  async move(id: string, tableId: string): Promise<StaffReservationResponse> {
-    await this.db.transaction().execute(async (trx) => {
-      const row = await this.lockRow(trx, id);
-      if (row.status !== 'pending_payment' && row.status !== 'confirmed') {
-        throw new DomainException(
-          'reservation_closed',
-          HttpStatus.CONFLICT,
-          'Solo se puede mover una reserva activa.',
-          { status: row.status },
-        );
-      }
-      const tables = await this.activeTables(trx, true);
-      const target = tables.find((t) => t.id === tableId);
-      if (!target || target.seats < row.party_size) {
-        throw new DomainException(
-          'table_not_suitable',
-          HttpStatus.CONFLICT,
-          'La mesa no está activa o no alcanza para el grupo.',
-        );
-      }
-      const windows = await this.blockingWindows(
-        trx,
-        new Date(row.starts_at),
-        new Date(row.blocks_until),
-        new Date(),
-      );
-      const clash = windows.some(
-        (w) =>
-          w.tableId === tableId &&
-          overlaps(new Date(row.starts_at), new Date(row.blocks_until), w.startsAt, w.blocksUntil),
-      );
-      if (clash) {
-        throw new DomainException(
-          'table_taken',
-          HttpStatus.CONFLICT,
-          'Esa mesa ya tiene una reserva en ese horario.',
-        );
-      }
-      await trx
-        .updateTable('reservations')
-        .set({ table_id: tableId, updated_at: new Date() })
-        .where('id', '=', id)
-        .execute();
-    });
     return this.staffView(this.db, id);
   }
 
@@ -756,54 +599,24 @@ export class ReservationsService {
     });
   }
 
-  private async activeTables(db: Kysely<Database>, lock = false): Promise<CandidateTable[]> {
-    let query = db
-      .selectFrom('tables')
-      .select(['id', 'seats', 'label'])
-      .where('is_active', '=', true)
-      .orderBy('id');
-    if (lock) query = query.forUpdate();
-    return query.execute();
-  }
-
-  private async blockingWindows(db: Kysely<Database>, from: Date, to: Date, now: Date) {
-    const rows = await db
-      .selectFrom('reservations')
-      .select(['table_id', 'starts_at', 'blocks_until', 'status', 'expires_at'])
-      .where('status', 'in', BLOCKING_STATUSES)
-      .where('starts_at', '<', to)
-      .where('blocks_until', '>', from)
-      .execute();
-    return rows
-      // Un adelanto sin pagar que ya pasó su plazo no bloquea (lo libera el cron).
-      .filter((r) => !(r.status === 'pending_payment' && new Date(r.expires_at) < now))
-      .map((r) => ({
-        tableId: r.table_id,
-        startsAt: new Date(r.starts_at),
-        blocksUntil: new Date(r.blocks_until),
-      }));
-  }
-
-  /** Mesas con una cuenta viva ahora, sin reserva detrás (clientes que llegaron sin reservar). */
-  private async busyTableIds(db: Kysely<Database>): Promise<Set<string>> {
-    const rows = await db
-      .selectFrom('orders')
-      .select('table_id')
-      .where('table_id', 'is not', null)
-      .where('status', 'in', ['open', 'confirmed'])
-      .where('payment_status', '<>', 'paid')
-      .execute();
-    return new Set(rows.map((r) => r.table_id as string));
-  }
-
   /**
-   * Una mesa ocupada ahora por un cliente sin reserva sigue tomada más o menos
-   * lo que dura un servicio: solo pesa sobre horarios que empiezan dentro de
-   * ese margen. Más adelante no se puede prometer nada sobre ella.
+   * Personas con reserva viva ese día (hora de Bolivia): pendientes de pago que todavía no vencieron, confirmadas y ya
+   * sentadas. Una pendiente que pasó su plazo no cuenta (la libera el proceso periódico).
    */
-  private busyFor(startsAt: Date, blocksUntil: Date, busy: Set<string>, now: Date): Set<string> {
-    const serviceMs = blocksUntil.getTime() - startsAt.getTime();
-    return startsAt.getTime() < now.getTime() + serviceMs ? busy : new Set<string>();
+  private async reservedPeopleOnDay(db: Kysely<Database>, date: string, now: Date): Promise<number> {
+    const from = startOfBoliviaDay(date);
+    const to = new Date(from.getTime() + 24 * 60 * 60_000);
+    const row = await db
+      .selectFrom('reservations')
+      .select(sql<string>`coalesce(sum(party_size), 0)`.as('people'))
+      .where('status', 'in', BLOCKING_STATUSES)
+      .where('starts_at', '>=', from)
+      .where('starts_at', '<', to)
+      .where((eb) =>
+        eb.not(eb.and([eb('status', '=', 'pending_payment'), eb('expires_at', '<', now)])),
+      )
+      .executeTakeFirst();
+    return Number(row?.people ?? 0);
   }
 
   private async requireRow(db: Kysely<Database>, id: string): Promise<ReservationRow> {
@@ -826,13 +639,11 @@ export class ReservationsService {
   private async staffView(db: Kysely<Database>, id: string): Promise<StaffReservationResponse> {
     const row = await db
       .selectFrom('reservations')
-      .innerJoin('tables', 'tables.id', 'reservations.table_id')
       .selectAll('reservations')
-      .select(['tables.label as table_label', 'tables.seats as table_seats'])
       .where('reservations.id', '=', id)
       .executeTakeFirst();
     if (!row) throw new NotFoundDomainError('reservation', id);
-    return toStaff(row, row.table_label, row.table_seats);
+    return toStaff(row);
   }
 }
 
@@ -860,13 +671,10 @@ function toPublic(row: ReservationRow): PublicReservationResponse {
   };
 }
 
-function toStaff(row: ReservationRow, tableLabel: string, tableSeats: number): StaffReservationResponse {
+function toStaff(row: ReservationRow): StaffReservationResponse {
   return {
     ...toPublic(row),
     customerPhone: row.customer_phone,
-    tableId: row.table_id,
-    tableLabel,
-    tableSeats,
     blocksUntil: new Date(row.blocks_until).toISOString(),
     accountOrderId: row.account_order_id,
     cancelReason: row.cancel_reason,

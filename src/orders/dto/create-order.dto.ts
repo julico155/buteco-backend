@@ -84,6 +84,15 @@ export class CreateOrderDto {
   @Type(() => DeliveryLocationDto)
   deliveryLocation?: DeliveryLocationDto;
 
+  /**
+   * Solo un pedido de mesa (`dine_in`) del POS: la reserva cuyo adelanto se descuenta como crédito a favor. El pedido nace con
+   * el consumo neto del adelanto, y la reserva queda usada. 409 si la reserva no se puede usar (sin adelanto pagado, ya usada,
+   * cancelada o vencida).
+   */
+  @IsOptional()
+  @IsUUID()
+  reservationId?: string;
+
   /** Solo honrado para staff con rol autorizado — ver módulo `auth` (pendiente). */
   @IsOptional()
   @IsBoolean()

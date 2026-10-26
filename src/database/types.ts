@@ -460,7 +460,10 @@ export interface ReservationSettingsTable {
   cancel_refund_hours: Generated<number>;
   min_lead_minutes: Generated<number>;
   max_days_ahead: Generated<number>;
+  /** Ya no se usa (el cupo es por personas, ver `max_people_per_day`); la columna queda por compatibilidad. */
   max_occupancy_percent: Generated<number>;
+  /** Tope de personas que pueden tener reserva el mismo día (suma de `party_size` de las reservas vivas). Migración 1700000018000. */
+  max_people_per_day: Generated<number>;
   last_slot_before_close_minutes: Generated<number>;
   updated_at: Timestamp;
 }
@@ -468,7 +471,8 @@ export interface ReservationSettingsTable {
 export interface ReservationsTable {
   id: Generated<string>;
   reservation_number: string;
-  table_id: string;
+  /** Solo reservas anteriores a 1700000018000: las nuevas no usan mesa. */
+  table_id: string | null;
   party_size: number;
   customer_name: string;
   customer_phone: string;

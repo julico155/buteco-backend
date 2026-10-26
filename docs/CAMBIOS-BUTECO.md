@@ -152,6 +152,10 @@ el 17. Sin esos parámetros no filtra por fecha. `createdAt` sigue viniendo en U
 
 Los pedidos del agente (canal `whatsapp`) pagados por QR descuentan una comisión (`AGENT_COMMISSION_PERCENT`, sobre los productos, sin envío) de un saldo que el negocio recarga con un QR del banco (segundo juego de llaves `BANECO_TOPUP_*`). Se descuenta recién al cobrarse el QR, se devuelve si el pedido cobrado se cancela, y al pasar el sobregiro (`AGENT_BALANCE_OVERDRAFT_LIMIT`) los pedidos nuevos del agente dan `409 agent_service_suspended`. Apagado por defecto. Migración `1700000017000`. Detalle en [saldo-comision.md](saldo-comision.md).
 
+### Fase 8: mesa simple y reservas por personas
+
+"Mesa" pasa a ser un pedido simple para consumir en el local (sin plano ni cuenta abierta), cobrado antes de cocinar como el de recojo. Las reservas dejan de asignar mesa: el cupo es un máximo de personas por día (`maxPeoplePerDay`, 30) y el adelanto se descuenta como crédito en el pedido de mesa del cliente (`reservationId`). Se quitan `seat` y `move`. Migración `1700000018000`. Detalle en [mesa-simple-y-reservas.md](mesa-simple-y-reservas.md).
+
 ## 4. Cómo se verificó
 
 | Qué | Resultado |

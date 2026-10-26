@@ -1,5 +1,8 @@
 # Mesas y cuentas de mesa
 
+> **Desactualizado.** El plano de mesas y las cuentas abiertas ya no son parte del flujo: "mesa" es ahora un pedido simple.
+> Ver [mesa-simple-y-reservas.md](mesa-simple-y-reservas.md).
+
 El consumo en el local siempre tiene mesa. Una mesa tiene a lo sumo **una cuenta
 viva**: un pedido `dine_in` que se abre al sentar al cliente, recibe consumo en
 rondas y se cobra al final (QR, efectivo o dividido).

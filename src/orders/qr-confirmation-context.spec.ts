@@ -10,6 +10,7 @@ function baseOrder(overrides: Partial<OrderResponse> = {}): OrderResponse {
     customerName: 'Juan Pérez',
     tableId: null,
     billRequestedAt: null,
+    depositCreditAmount: 0,
     deliveryType: 'delivery',
     paymentMethod: 'qr',
     qrScope: null,

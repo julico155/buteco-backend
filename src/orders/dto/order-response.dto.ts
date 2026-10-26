@@ -75,6 +75,8 @@ export class OrderResponse {
   tableId!: string | null;
   /** "Pidió la cuenta" (cuenta de mesa). */
   billRequestedAt!: string | null;
+  /** Adelanto de reserva descontado de este pedido (crédito a favor). `subtotalAmount` y `totalAmount` ya vienen netos de este monto. */
+  depositCreditAmount!: number;
   @ApiProperty({ enum: ORDER_PAYMENT_METHOD_VALUES })
   paymentMethod!: string;
   /** Solo delivery pagado por QR: 'food_only' (el repartidor cobra el envío) o 'food_and_delivery' (el QR cubre todo). */
