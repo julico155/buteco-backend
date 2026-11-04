@@ -43,6 +43,14 @@ export class UpdateProductDto {
   isActive?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  sellOnWhatsapp?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  sellOnPos?: boolean;
+
+  @IsOptional()
   @IsInt()
   sortOrder?: number;
 

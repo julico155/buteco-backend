@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Kysely, Transaction } from 'kysely';
 import { KYSELY } from '../database/database.module';
 import { Database } from '../database/types';
+import { CatalogChannel, SELL_ON_COLUMN } from '../common/channel-visibility';
 import { DomainException, NotFoundDomainError } from '../common/exceptions/domain-exception';
 import { CreatePromotionDto } from './dto/create-promotion.dto';
 import { UpdatePromotionDto } from './dto/update-promotion.dto';
@@ -20,6 +21,9 @@ export interface PromotionRow {
   description: string | null;
   promo_price: string;
   is_active: boolean;
+  sell_on_whatsapp: boolean;
+  sell_on_pos: boolean;
+  allow_combine_with_loose: boolean;
   archived_at: Date | string | null;
   starts_at: Date | string | null;
   ends_at: Date | string | null;
@@ -48,12 +52,10 @@ export interface PromotionItemRow {
 export class PromotionsService {
   constructor(@Inject(KYSELY) private readonly db: Kysely<Database>) {}
 
-  async findAll(): Promise<PromotionResponse[]> {
-    const promotions = await this.db
-      .selectFrom('promotions')
-      .selectAll()
-      .orderBy('sort_order', 'asc')
-      .execute();
+  async findAll(channel?: CatalogChannel): Promise<PromotionResponse[]> {
+    let query = this.db.selectFrom('promotions').selectAll();
+    if (channel) query = query.where(SELL_ON_COLUMN[channel], '=', true);
+    const promotions = await query.orderBy('sort_order', 'asc').execute();
     const itemsByPromotion = await this.loadItems(
       this.db,
       promotions.map((p) => p.id),
@@ -83,6 +85,9 @@ export class PromotionsService {
           starts_at: dto.startsAt,
           ends_at: dto.endsAt,
           image_url: dto.imageUrl,
+          sell_on_whatsapp: dto.sellOnWhatsapp,
+          sell_on_pos: dto.sellOnPos,
+          allow_combine_with_loose: dto.allowCombineWithLoose,
         })
         .returningAll()
         .executeTakeFirstOrThrow();
@@ -104,6 +109,9 @@ export class PromotionsService {
           ...(dto.startsAt !== undefined ? { starts_at: dto.startsAt } : {}),
           ...(dto.endsAt !== undefined ? { ends_at: dto.endsAt } : {}),
           ...(dto.imageUrl !== undefined ? { image_url: dto.imageUrl } : {}),
+          ...(dto.sellOnWhatsapp !== undefined ? { sell_on_whatsapp: dto.sellOnWhatsapp } : {}),
+          ...(dto.sellOnPos !== undefined ? { sell_on_pos: dto.sellOnPos } : {}),
+          ...(dto.allowCombineWithLoose !== undefined ? { allow_combine_with_loose: dto.allowCombineWithLoose } : {}),
           revision: (eb) => eb('revision', '+', 1),
           updated_at: new Date(),
         })
@@ -176,6 +184,9 @@ export class PromotionsService {
           starts_at: source.starts_at,
           ends_at: source.ends_at,
           image_url: source.image_url,
+          sell_on_whatsapp: source.sell_on_whatsapp,
+          sell_on_pos: source.sell_on_pos,
+          allow_combine_with_loose: source.allow_combine_with_loose,
           sort_order: source.sort_order + 1,
           is_active: false,
         })
@@ -343,6 +354,9 @@ function toPromotionResponse(
     description: promotion.description,
     promoPrice: Number(promotion.promo_price),
     isActive: promotion.is_active,
+    sellOnWhatsapp: promotion.sell_on_whatsapp,
+    sellOnPos: promotion.sell_on_pos,
+    allowCombineWithLoose: promotion.allow_combine_with_loose,
     archivedAt: promotion.archived_at ? new Date(promotion.archived_at).toISOString() : null,
     startsAt: promotion.starts_at ? new Date(promotion.starts_at).toISOString() : null,
     endsAt: promotion.ends_at ? new Date(promotion.ends_at).toISOString() : null,

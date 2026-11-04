@@ -28,7 +28,7 @@ export class ProductUnavailableError extends DomainException {
    */
   constructor(
     productId: string,
-    reason: 'inactive' | 'sold_out' | 'not_available_today',
+    reason: 'inactive' | 'sold_out' | 'not_available_today' | 'not_in_channel',
     unavailableProductIds?: string[],
     extra: { availableWeekdays?: number[] } = {},
   ) {
@@ -37,6 +37,18 @@ export class ProductUnavailableError extends DomainException {
       HttpStatus.CONFLICT,
       `El producto ${productId} no está disponible (${reason}).`,
       { productId, reason, unavailableProductIds: unavailableProductIds ?? [productId], ...extra },
+    );
+  }
+}
+
+/** La promoción no admite combinarse con productos sueltos y el pedido los trae. */
+export class PromotionNotCombinableError extends DomainException {
+  constructor(promotionIds: string[], looseProductIds: string[]) {
+    super(
+      'promotion_not_combinable',
+      HttpStatus.CONFLICT,
+      'Esta promoción no se puede combinar con productos sueltos: pedí solo promociones o solo productos sueltos.',
+      { promotionIds, looseProductIds },
     );
   }
 }

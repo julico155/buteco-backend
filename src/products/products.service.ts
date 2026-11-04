@@ -1,6 +1,7 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Kysely, Transaction } from 'kysely';
 import { KYSELY } from '../database/database.module';
+import { CatalogChannel, SELL_ON_COLUMN } from '../common/channel-visibility';
 import { Database } from '../database/types';
 import {
   DomainException,
@@ -39,9 +40,10 @@ export class ProductsService {
    * reactivar uno: sin eso, desactivarlo lo vuelve irrecuperable desde la
    * UI. Sold-out ≠ inactivo (invariante 4) — `isAvailable` no se toca acá.
    */
-  async findMany(includeInactive = false): Promise<ProductResponse[]> {
+  async findMany(includeInactive = false, channel?: CatalogChannel): Promise<ProductResponse[]> {
     let query = this.db.selectFrom('products').selectAll();
     if (!includeInactive) query = query.where('is_active', '=', true);
+    if (channel) query = query.where(SELL_ON_COLUMN[channel], '=', true);
     const rows = await query.orderBy('sort_order', 'asc').execute();
     if (rows.length === 0) return [];
 
@@ -79,6 +81,8 @@ export class ProductsService {
             price: dto.price.toFixed(2),
             is_active: dto.isActive,
             is_available: dto.isAvailable,
+            sell_on_whatsapp: dto.sellOnWhatsapp,
+            sell_on_pos: dto.sellOnPos,
             sort_order: dto.sortOrder,
             available_weekdays: dto.availableWeekdays ? sortedWeekdays(dto.availableWeekdays) : null,
             serves_label: dto.servesLabel?.trim() || null,
@@ -113,6 +117,8 @@ export class ProductsService {
           ...(dto.categoryId !== undefined ? { category_id: dto.categoryId } : {}),
           ...(dto.price !== undefined ? { price: dto.price.toFixed(2) } : {}),
           ...(dto.isActive !== undefined ? { is_active: dto.isActive } : {}),
+          ...(dto.sellOnWhatsapp !== undefined ? { sell_on_whatsapp: dto.sellOnWhatsapp } : {}),
+          ...(dto.sellOnPos !== undefined ? { sell_on_pos: dto.sellOnPos } : {}),
           ...(dto.sortOrder !== undefined ? { sort_order: dto.sortOrder } : {}),
           // `null` borra el valor (todos los días / sin etiqueta / sin tiempo); omitido no lo toca.
           ...(dto.availableWeekdays !== undefined
@@ -422,6 +428,8 @@ export function toProductResponse(
     price: string;
     is_active: boolean;
     is_available: boolean;
+    sell_on_whatsapp: boolean;
+    sell_on_pos: boolean;
     sort_order: number;
     image_key: string | null;
     available_weekdays: number[] | null;
@@ -441,6 +449,8 @@ export function toProductResponse(
     price: Number(row.price),
     isActive: row.is_active,
     isAvailable: row.is_available,
+    sellOnWhatsapp: row.sell_on_whatsapp,
+    sellOnPos: row.sell_on_pos,
     sortOrder: row.sort_order,
     imageUrl: row.image_key ? `/products/${row.id}/image` : null,
     complements: complements.map((c) => ({ id: c.id, name: c.name, sortOrder: c.sort_order })),

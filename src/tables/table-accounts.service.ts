@@ -188,6 +188,7 @@ export class TableAccountsService {
             quantity: p.quantity,
             revision: p.revision,
           })),
+          'pos',
         );
         if (priced.subtotal <= 0) {
           throw new ValidationError('El total de la ronda debe ser positivo.');
