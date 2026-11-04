@@ -177,6 +177,8 @@ export class LateOrderRequestsService {
           qrScope: req.qr_scope,
           // La solicitud ya se validó al crearse; ver CheckoutCartInput.
           skipAvailabilityChecks: true,
+          // El bloqueo por saldo ya se evaluó al crear la solicitud; rechazar al aceptar sería permanente (ver catch más abajo).
+          skipBillingGate: true,
           // Ubicación del checkout web guardada al crear la solicitud (migración 1700000013000). Se aplica y cotiza AQUÍ, en
           // la misma transacción que crea el pedido; sin ella (solicitudes de siempre) el pedido nace awaiting_location.
           deliveryLocation: storedLocation(req),

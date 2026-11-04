@@ -278,7 +278,8 @@ export class TablesService {
       .execute();
     const reservationByTable = new Map<string, (typeof reservations)[number]>();
     for (const r of reservations) {
-      if (!reservationByTable.has(r.table_id)) reservationByTable.set(r.table_id, r);
+      // Las reservas nuevas no usan mesa (table_id null): solo las de antes pintan el plano.
+      if (r.table_id && !reservationByTable.has(r.table_id)) reservationByTable.set(r.table_id, r);
     }
 
     return tables.map((table) => {

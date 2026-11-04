@@ -5,7 +5,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -38,13 +37,6 @@ export class CreateReservationDto {
   notes?: string;
 }
 
-export class SeatReservationDto {
-  /** Otra mesa distinta de la asignada (si la asignada tiene una cuenta abierta). */
-  @IsOptional()
-  @IsUUID()
-  tableId?: string;
-}
-
 export class CancelReservationDto {
   @IsOptional()
   @IsString()
@@ -55,11 +47,6 @@ export class CancelReservationDto {
   @IsOptional()
   @IsBoolean()
   refund?: boolean;
-}
-
-export class MoveReservationDto {
-  @IsUUID()
-  tableId!: string;
 }
 
 export class UpdateReservationSettingsDto {
@@ -117,8 +104,9 @@ export class UpdateReservationSettingsDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(100)
-  maxOccupancyPercent?: number;
+  @Max(1000)
+  /** Tope de personas con reserva el mismo día. */
+  maxPeoplePerDay?: number;
 
   @IsOptional()
   @IsInt()

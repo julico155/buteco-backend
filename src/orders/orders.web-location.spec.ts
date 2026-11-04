@@ -373,7 +373,7 @@ describe('OrdersService.create con deliveryLocation', () => {
   it('INTEGRADO: una creación web ubicada y cotizada nunca emite location_request (cierra la carrera con WhatsApp)', async () => {
     const response: OrderResponse = {
       id: 'order-1', orderNumber: 'ORD-0001', customerId: 'customer-1', channel: 'web', customerName: 'Ana', deliveryType: 'delivery',
-      tableId: null, billRequestedAt: null, paymentMethod: 'cash', qrScope: null, paymentStatus: 'unpaid', status: 'confirmed', notes: null,
+      tableId: null, billRequestedAt: null, depositCreditAmount: 0, paymentMethod: 'cash', qrScope: null, paymentStatus: 'unpaid', status: 'confirmed', notes: null,
       subtotalAmount: 50, deliveryBaseAmount: 10, deliverySurchargeAmount: 2, totalAmount: 62, deliveryQuoteStatus: 'quoted', deliveryDistanceMeters: 3200,
       cashConfirmedAt: null, splitCashAmount: null, splitQrAmount: null, splitCashConfirmedAt: null, statusUpdatedBy: null, deliveryDriverName: null,
       deliveryAcceptedAt: null, deliveredAt: null, createdAt: '2026-10-06T16:00:00.000Z', updatedAt: '2026-10-06T16:00:00.000Z', items: [], promotions: [],
@@ -393,7 +393,7 @@ describe('OrdersService.create con deliveryLocation', () => {
 describe('OrdersService.notifyOrderCreated con ubicación incluida', () => {
   const base: OrderResponse = {
     id: 'order-1', orderNumber: 'ORD-0001', customerId: 'customer-1', channel: 'web', customerName: 'Ana', deliveryType: 'delivery',
-    tableId: null, billRequestedAt: null, paymentMethod: 'cash', qrScope: null, paymentStatus: 'unpaid', status: 'confirmed', notes: null,
+    tableId: null, billRequestedAt: null, depositCreditAmount: 0, paymentMethod: 'cash', qrScope: null, paymentStatus: 'unpaid', status: 'confirmed', notes: null,
     subtotalAmount: 50, deliveryBaseAmount: 10, deliverySurchargeAmount: 2, totalAmount: 62, deliveryQuoteStatus: 'quoted', deliveryDistanceMeters: 3200,
     cashConfirmedAt: null, splitCashAmount: null, splitQrAmount: null, splitCashConfirmedAt: null, statusUpdatedBy: null, deliveryDriverName: null,
     deliveryAcceptedAt: null, deliveredAt: null, createdAt: '2026-10-06T16:00:00.000Z', updatedAt: '2026-10-06T16:00:00.000Z', items: [], promotions: [],

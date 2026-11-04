@@ -10,23 +10,7 @@ export interface ReservationTimingSettings {
   maxDaysAhead: number;
   lastSlotBeforeCloseMinutes: number;
   cancelRefundHours: number;
-  maxOccupancyPercent: number;
-}
-
-export interface CandidateTable {
-  id: string;
-  seats: number;
-  label: string;
-}
-
-export interface BlockingWindow {
-  tableId: string;
-  startsAt: Date;
-  blocksUntil: Date;
-}
-
-export function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
-  return aStart.getTime() < bEnd.getTime() && bStart.getTime() < aEnd.getTime();
+  maxPeoplePerDay: number;
 }
 
 /**
@@ -63,44 +47,23 @@ export function slotsForDate(params: {
 }
 
 /**
- * Elige la mesa para una reserva: la más chica que alcance y que esté libre en
- * toda la ventana. Devuelve null si no hay, o si ocuparla pasaría el tope de
- * ocupación (`maxOccupancyPercent` de las mesas activas, medido en mesas).
- *
- * `busyTableIds` son mesas ocupadas ahora por clientes sin reserva: cuentan
- * como mesas tomadas y no se ofrecen.
+ * Cupo del día: ¿entra un grupo más sin pasar el máximo de personas con reserva?
+ * `reservedPeople` es la suma de `party_size` de las reservas vivas de ese día (sin contar el grupo nuevo).
+ * Justo en el tope entra; un solo comensal de más, no.
  */
-export function pickTable(params: {
-  tables: CandidateTable[];
-  windows: BlockingWindow[];
-  startsAt: Date;
-  blocksUntil: Date;
+export function fitsInDay(params: {
+  reservedPeople: number;
   partySize: number;
-  maxOccupancyPercent: number;
-  busyTableIds?: Set<string>;
-}): CandidateTable | null {
-  const { tables, windows, startsAt, blocksUntil, partySize, maxOccupancyPercent } = params;
-  const busy = params.busyTableIds ?? new Set<string>();
-  if (tables.length === 0) return null;
-
-  const takenIds = new Set<string>(busy);
-  for (const w of windows) {
-    if (overlaps(startsAt, blocksUntil, w.startsAt, w.blocksUntil)) takenIds.add(w.tableId);
-  }
-
-  // Tope: nunca más de X% de las mesas tomadas a la vez en esa franja.
-  const maxTaken = Math.max(1, Math.floor((tables.length * maxOccupancyPercent) / 100));
-  if (takenIds.size >= maxTaken) return null;
-
-  const candidates = tables
-    .filter((t) => t.seats >= partySize && !takenIds.has(t.id))
-    .sort((a, b) => a.seats - b.seats || a.label.localeCompare(b.label, 'es', { numeric: true }));
-  return candidates[0] ?? null;
+  maxPeoplePerDay: number;
+}): boolean {
+  const { reservedPeople, partySize, maxPeoplePerDay } = params;
+  if (!Number.isInteger(partySize) || partySize < 1) return false;
+  return reservedPeople + partySize <= maxPeoplePerDay;
 }
 
-/** Cantidad máxima de personas que admite una reserva: las sillas de la mesa más grande. */
-export function maxPartySize(tables: CandidateTable[]): number {
-  return tables.reduce((max, t) => Math.max(max, t.seats), 0);
+/** Cuántas personas más se pueden reservar ese día (nunca negativo). */
+export function remainingPeople(reservedPeople: number, maxPeoplePerDay: number): number {
+  return Math.max(0, maxPeoplePerDay - reservedPeople);
 }
 
 export type DepositOutcome = 'refund_due' | 'forfeited';
@@ -116,15 +79,10 @@ export function depositOutcomeOnCancel(
 }
 
 /**
- * ¿La reserva ya "pesa" en el plano? Desde un rato antes de su hora hasta que
- * vence el plazo de espera.
+ * Crédito que el adelanto de una reserva deja en el pedido de consumo: lo que pagó, sin pasar de lo que se consumió. Lo que
+ * sobra del adelanto no se devuelve ni queda a favor (por ahora no hay conciliación).
  */
-export function isReservedNow(
-  now: Date,
-  startsAt: Date,
-  expiresAt: Date,
-  showBeforeMinutes: number,
-): boolean {
-  const from = startsAt.getTime() - showBeforeMinutes * 60_000;
-  return now.getTime() >= from && now.getTime() <= expiresAt.getTime();
+export function depositCreditFor(depositAmount: number, consumptionSubtotal: number): number {
+  const credit = Math.min(Math.max(depositAmount, 0), Math.max(consumptionSubtotal, 0));
+  return Math.round(credit * 100) / 100;
 }

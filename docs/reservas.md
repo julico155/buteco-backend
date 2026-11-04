@@ -1,5 +1,8 @@
 # Reservas de mesa
 
+> **Desactualizado en lo de las mesas.** Las reservas ya no asignan mesa ni usan `seat`/`move`: el cupo es un máximo de
+> personas por día y el adelanto se descuenta como crédito en el pedido de mesa. Ver [mesa-simple-y-reservas.md](mesa-simple-y-reservas.md).
+
 La landing consulta disponibilidad, reserva y paga el adelanto por QR. El
 cliente elige **cantidad de personas y horario**; nunca ve qué mesa le toca.
 

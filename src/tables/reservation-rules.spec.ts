@@ -1,28 +1,12 @@
 import {
-  BlockingWindow,
-  CandidateTable,
+  depositCreditFor,
   depositOutcomeOnCancel,
-  isReservedNow,
-  maxPartySize,
-  overlaps,
-  pickTable,
+  fitsInDay,
+  remainingPeople,
   slotsForDate,
 } from './reservation-rules';
 
 const at = (hhmm: string, date = '2026-10-16') => new Date(`${date}T${hhmm}:00-04:00`);
-
-const TABLES: CandidateTable[] = [
-  { id: 't2a', seats: 2, label: 'Mesa 1' },
-  { id: 't2b', seats: 2, label: 'Mesa 2' },
-  { id: 't4', seats: 4, label: 'Mesa 3' },
-  { id: 't6', seats: 6, label: 'Mesa 4' },
-];
-
-const window = (tableId: string, from: string, to: string): BlockingWindow => ({
-  tableId,
-  startsAt: at(from),
-  blocksUntil: at(to),
-});
 
 describe('slotsForDate', () => {
   const settings = {
@@ -92,66 +76,6 @@ describe('slotsForDate', () => {
   });
 });
 
-describe('pickTable', () => {
-  const base = {
-    tables: TABLES,
-    startsAt: at('20:00'),
-    blocksUntil: at('22:00'),
-    maxOccupancyPercent: 90,
-  };
-
-  it('para 2 personas elige una mesa de 2 antes que una más grande', () => {
-    expect(pickTable({ ...base, windows: [], partySize: 2 })?.seats).toBe(2);
-  });
-
-  it('para 3 personas usa la de 4 (la más chica que alcance)', () => {
-    expect(pickTable({ ...base, windows: [], partySize: 3 })?.id).toBe('t4');
-  });
-
-  it('si las de 2 están tomadas, para 2 personas usa una más grande', () => {
-    const windows = [window('t2a', '19:00', '21:00'), window('t2b', '20:30', '22:30')];
-    expect(pickTable({ ...base, windows, partySize: 2 })?.id).toBe('t4');
-  });
-
-  it('una reserva que termina justo cuando empieza la otra no se pisa', () => {
-    const windows = [window('t2a', '18:00', '20:00')];
-    expect(pickTable({ ...base, windows, partySize: 2 })?.id).toBe('t2a');
-  });
-
-  it('no hay mesa para más personas que sillas', () => {
-    expect(pickTable({ ...base, windows: [], partySize: 7 })).toBeNull();
-  });
-
-  it('respeta el tope de ocupación: con 4 mesas y 90% se pueden tomar 3', () => {
-    const windows = [
-      window('t2a', '20:00', '22:00'),
-      window('t2b', '20:00', '22:00'),
-      window('t4', '20:00', '22:00'),
-    ];
-    // Queda libre la de 6, pero ya hay 3 de 4 tomadas (tope = floor(4*0.9) = 3).
-    expect(pickTable({ ...base, windows, partySize: 2 })).toBeNull();
-  });
-
-  it('el tope no bloquea cuando todavía hay margen', () => {
-    const windows = [window('t2a', '20:00', '22:00'), window('t2b', '20:00', '22:00')];
-    expect(pickTable({ ...base, windows, partySize: 2 })?.id).toBe('t4');
-  });
-
-  it('las mesas ocupadas por clientes sin reserva cuentan como tomadas', () => {
-    const busyTableIds = new Set(['t2a', 't2b', 't4']);
-    expect(pickTable({ ...base, windows: [], partySize: 2, busyTableIds })).toBeNull();
-  });
-
-  it('con una sola mesa el tope nunca la bloquea del todo', () => {
-    const single = [{ id: 'solo', seats: 4, label: 'Mesa 1' }];
-    expect(pickTable({ ...base, tables: single, windows: [], partySize: 2 })?.id).toBe('solo');
-  });
-
-  it('sin mesas no hay nada que ofrecer', () => {
-    expect(pickTable({ ...base, tables: [], windows: [], partySize: 2 })).toBeNull();
-  });
-});
-
 describe('depositOutcomeOnCancel', () => {
   const startsAt = at('20:00');
 
@@ -166,25 +90,64 @@ describe('depositOutcomeOnCancel', () => {
   });
 });
 
-describe('isReservedNow', () => {
-  it('pesa desde un rato antes hasta que vence la espera', () => {
-    const starts = at('20:00');
-    const expires = at('20:30');
-    expect(isReservedNow(at('19:20'), starts, expires, 30)).toBe(false);
-    expect(isReservedNow(at('19:30'), starts, expires, 30)).toBe(true);
-    expect(isReservedNow(at('20:30'), starts, expires, 30)).toBe(true);
-    expect(isReservedNow(at('20:31'), starts, expires, 30)).toBe(false);
+
+describe('fitsInDay (cupo de personas por día)', () => {
+  const max = 30;
+
+  it('con el día vacío entra cualquier grupo hasta el máximo', () => {
+    expect(fitsInDay({ reservedPeople: 0, partySize: 4, maxPeoplePerDay: max })).toBe(true);
+    expect(fitsInDay({ reservedPeople: 0, partySize: 30, maxPeoplePerDay: max })).toBe(true);
+  });
+
+  it('justo en el tope todavía entra', () => {
+    expect(fitsInDay({ reservedPeople: 26, partySize: 4, maxPeoplePerDay: max })).toBe(true);
+  });
+
+  it('una persona de más ya no entra', () => {
+    expect(fitsInDay({ reservedPeople: 27, partySize: 4, maxPeoplePerDay: max })).toBe(false);
+    expect(fitsInDay({ reservedPeople: 30, partySize: 1, maxPeoplePerDay: max })).toBe(false);
+  });
+
+  it('un grupo mayor al máximo del día nunca entra', () => {
+    expect(fitsInDay({ reservedPeople: 0, partySize: 31, maxPeoplePerDay: max })).toBe(false);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])('un tamaño de grupo inválido (%s) no entra', (partySize) => {
+    expect(fitsInDay({ reservedPeople: 0, partySize, maxPeoplePerDay: max })).toBe(false);
+  });
+
+  it('el máximo sale del ajuste: con 10 personas, un grupo de 4 y otro de 7 no caben juntos', () => {
+    expect(fitsInDay({ reservedPeople: 4, partySize: 6, maxPeoplePerDay: 10 })).toBe(true);
+    expect(fitsInDay({ reservedPeople: 4, partySize: 7, maxPeoplePerDay: 10 })).toBe(false);
   });
 });
 
-describe('helpers', () => {
-  it('maxPartySize es la mesa más grande', () => {
-    expect(maxPartySize(TABLES)).toBe(6);
-    expect(maxPartySize([])).toBe(0);
+describe('remainingPeople', () => {
+  it('resta lo reservado del máximo y nunca baja de 0', () => {
+    expect(remainingPeople(12, 30)).toBe(18);
+    expect(remainingPeople(30, 30)).toBe(0);
+    expect(remainingPeople(45, 30)).toBe(0);
+  });
+});
+
+describe('depositCreditFor (adelanto como crédito en el pedido)', () => {
+  it('si el consumo supera el adelanto, el crédito es todo el adelanto', () => {
+    expect(depositCreditFor(100, 250)).toBe(100);
+    expect(depositCreditFor(100, 100)).toBe(100);
   });
 
-  it('overlaps trata los bordes como no solapados', () => {
-    expect(overlaps(at('10:00'), at('12:00'), at('12:00'), at('14:00'))).toBe(false);
-    expect(overlaps(at('10:00'), at('12:01'), at('12:00'), at('14:00'))).toBe(true);
+  it('si el consumo es menor, el crédito no pasa del consumo (lo que sobra no se devuelve ni queda a favor)', () => {
+    expect(depositCreditFor(100, 80)).toBe(80);
+  });
+
+  it('sin adelanto o sin consumo no hay crédito, y nunca es negativo', () => {
+    expect(depositCreditFor(0, 80)).toBe(0);
+    expect(depositCreditFor(100, 0)).toBe(0);
+    expect(depositCreditFor(-5, 80)).toBe(0);
+    expect(depositCreditFor(100, -5)).toBe(0);
+  });
+
+  it('redondea al centavo', () => {
+    expect(depositCreditFor(100, 33.335)).toBe(33.34);
   });
 });

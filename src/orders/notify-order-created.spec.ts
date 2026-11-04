@@ -8,7 +8,7 @@ const baseOrder: OrderResponse = {
   customerName: 'Juan Pérez',
   deliveryType: 'delivery',
   tableId: null,
-  billRequestedAt: null,
+  billRequestedAt: null, depositCreditAmount: 0,
   paymentMethod: 'qr',
   qrScope: null,
   paymentStatus: 'unpaid',

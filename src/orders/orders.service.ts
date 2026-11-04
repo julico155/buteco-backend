@@ -59,6 +59,14 @@ import { normalizePhone } from '../customers/normalize-phone';
 import { requiresPaymentBeforeHandover } from './payment-gate';
 import { decideLocationAttach, LocationAttachDecision } from './location-attach';
 import { buildQrConfirmationContext, qrAmountFor } from './qr-confirmation-context';
+import { claimReservationCredit, markReservationUsed } from '../tables/reservation-credit';
+import {
+  agentBillingConfig,
+  assertAgentCanOrder,
+  commissionFor,
+  paysAgentCommission,
+  reverseCommission,
+} from '../billing/agent-billing';
 import { assertDeliveryLocationForWrite, assertWebDeliveryLocation, DeliveryLocationInput, idempotencyBody, sameDeliveryLocation } from './delivery-location';
 import {
   isAvailableOnDay,
@@ -104,6 +112,13 @@ export interface CheckoutCartInput {
    * ya aceptó.
    */
   skipAvailabilityChecks?: boolean;
+  /**
+   * Solo lo pasa LateOrderRequestsService.accept(): la solicitud ya pasó el bloqueo por saldo al crearse y el cliente ya tiene la
+   * promesa del local — no se rechaza al aceptar (un rechazo ahí sería permanente). La comisión se congela igual.
+   */
+  skipBillingGate?: boolean;
+  /** Solo pedido de mesa del POS: la reserva cuyo adelanto se descuenta como crédito (ver `claimReservationCredit`). */
+  reservationId?: string | null;
   /** Pedido ya cobrado fuera del sistema (canal `external`): nace `paid`. */
   settledExternally?: boolean;
   notes: string | null;
@@ -292,12 +307,14 @@ export class OrdersService {
     if (dto.channel === 'external' && dto.deliveryType === 'delivery') {
       throw new ValidationError('El canal external no admite pedidos de delivery.');
     }
-    // El consumo en el local siempre tiene mesa: se abre desde la mesa
-    // (POST /tables/:id/account), no con un pedido suelto.
-    if (dto.channel !== 'external' && dto.deliveryType === 'dine_in') {
-      throw new ValidationError(
-        'Los pedidos de mesa se abren desde la mesa: POST /tables/:id/account.',
-      );
+    // "Mesa" es un pedido simple para consumir en el local (sin plano ni cuenta abierta), cobrado antes de cocinar como el de
+    // recojo. Lo toma el cajero (POS) o un POS ajeno (`external`); el agente (whatsapp) y la web no toman pedidos de mesa.
+    if (dto.deliveryType === 'dine_in' && dto.channel !== 'pos' && dto.channel !== 'external') {
+      throw new ValidationError('Los pedidos para consumir en el local los toma el cajero desde el POS.');
+    }
+    // El adelanto de una reserva solo se aplica a un pedido de mesa tomado por el cajero.
+    if (dto.reservationId && (dto.deliveryType !== 'dine_in' || dto.channel !== 'pos')) {
+      throw new ValidationError('reservationId solo aplica a un pedido de mesa (dine_in) del POS.');
     }
     // Antes de tocar nada (horario, caja, idempotencia): una ubicación que este canal no puede mandar, o inválida, se
     // rechaza con un error controlado y no deja ningún estado a medias.
@@ -707,6 +724,7 @@ export class OrdersService {
       deliveryLocation: dto.deliveryLocation
         ? { latitude: dto.deliveryLocation.latitude, longitude: dto.deliveryLocation.longitude }
         : null,
+      reservationId: dto.reservationId ?? null,
       notes: dto.notes ?? null,
       items: dto.items,
       promotions: (dto.promotions ?? []).map((p) => ({
@@ -1081,12 +1099,33 @@ export class OrdersService {
       );
     }
 
+    // Adelanto de una reserva como crédito a favor: el pedido guarda el consumo NETO (igual que antes la cuenta de mesa) y el
+    // crédito aparte; el mínimo de pedido ya se evaluó con el consumo completo.
+    const reservation = input.reservationId
+      ? await claimReservationCredit(trx, input.reservationId, subtotal)
+      : null;
+    const credit = reservation?.credit ?? 0;
+    const netSubtotal = Math.round((subtotal - credit) * 100) / 100;
+    // El adelanto cubrió todo el consumo: no hay nada que cobrar, el pedido nace pagado.
+    const nothingToCollect = credit > 0 && netSubtotal <= 0;
+
     // pickup (para llevar) y dine_in (mesa) no necesitan ubicación ni cotización: nacen confirmados.
     const needsDelivery = input.deliveryType === 'delivery';
     const initialStatus: OrderStatus = needsDelivery ? 'awaiting_location' : 'confirmed';
     const confirmedAt = needsDelivery ? null : now;
     const deliveryPricing = needsDelivery ? ('dynamic' as const) : null;
     const deliveryQuoteStatus = needsDelivery ? ('pending' as const) : null;
+
+    // Comisión del agente (canal whatsapp + QR): se congela ahora y se descuenta recién al cobrarse el QR. Con la variable
+    // AGENT_COMMISSION_PERCENT sin definir, billing es null y nada de esto corre.
+    const billing = agentBillingConfig(this.config);
+    const commission =
+      billing && paysAgentCommission(input.channel, input.paymentMethod)
+        ? { percent: billing.commissionPercent, amount: commissionFor(subtotal, billing.commissionPercent) }
+        : null;
+    if (billing && commission && commission.amount > 0 && !input.skipBillingGate) {
+      await assertAgentCanOrder(trx, billing, commission.amount);
+    }
 
     const { orderNumber, numberingSessionId } = await this.assignOrderNumber(trx);
 
@@ -1099,20 +1138,31 @@ export class OrdersService {
         channel: input.channel,
         customer_name: customerName,
         delivery_type: input.deliveryType,
-        payment_method: input.paymentMethod,
+        // Sin nada que cobrar no hay QR que generar: queda como efectivo cobrado.
+        payment_method: nothingToCollect ? 'cash' : input.paymentMethod,
         qr_scope: qrScope,
         notes,
         status: initialStatus,
-        subtotal_amount: subtotal.toFixed(2),
-        total_amount: subtotal.toFixed(2),
+        subtotal_amount: netSubtotal.toFixed(2),
+        total_amount: netSubtotal.toFixed(2),
+        deposit_credit_amount: credit.toFixed(2),
         delivery_pricing: deliveryPricing,
         delivery_quote_status: deliveryQuoteStatus,
         confirmed_at: confirmedAt,
-        register_session_id: input.registerSessionId ?? null,
-        ...(input.settledExternally ? { payment_status: 'paid' as const } : {}),
+        register_session_id:
+          input.registerSessionId ?? (nothingToCollect ? await this.cashRegister.openSessionIdOrNull(trx) : null),
+        ...(commission && commission.amount > 0
+          ? {
+              agent_commission_percent: commission.percent.toFixed(2),
+              agent_commission_amount: commission.amount.toFixed(2),
+            }
+          : {}),
+        ...(input.settledExternally || nothingToCollect ? { payment_status: 'paid' as const } : {}),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
+
+    if (reservation) await markReservationUsed(trx, reservation, orderRow.id);
 
     if (itemLines.length > 0) {
       await trx
@@ -1286,6 +1336,12 @@ export class OrdersService {
       dto.deliveryType,
       subtotal,
     );
+    // Mismo bloqueo por saldo que un pedido normal: no se le promete al cliente algo que el agente no puede tomar. Con el subtotal
+    // informativo; al aceptarse ya no se vuelve a bloquear (ver skipBillingGate).
+    const billing = agentBillingConfig(this.config);
+    if (billing && paysAgentCommission(dto.channel, dto.paymentMethod)) {
+      await assertAgentCanOrder(this.db, billing, commissionFor(subtotal, billing.commissionPercent));
+    }
 
     const expiresAt = lateRequestExpiryFor(
       now,
@@ -1895,6 +1951,13 @@ export class OrdersService {
       );
     }
 
+    // Un pedido cobrado que se cancela devuelve su comisión (idempotente; sin efecto si nunca se cobró).
+    if (to === 'cancelled' && order.agent_commission_amount && order.payment_status === 'paid') {
+      await reverseCommission(this.db, orderId).catch((error: Error) =>
+        this.logger.error(`No se pudo devolver la comisión del pedido ${orderId}: ${error.message}`),
+      );
+    }
+
     if (to === 'cancelled' && order.payment_method === 'qr') {
       this.qrPayments
         .cancelForOrder(orderId)
@@ -2146,6 +2209,7 @@ export function toOrderResponse(
     delivery_type: string;
     table_id?: string | null;
     bill_requested_at?: Date | string | null;
+    deposit_credit_amount?: string;
     payment_method: string;
     qr_scope?: QrScope | null;
     payment_status: string;
@@ -2198,6 +2262,7 @@ export function toOrderResponse(
     deliveryType: order.delivery_type,
     tableId: order.table_id ?? null,
     billRequestedAt: order.bill_requested_at ? new Date(order.bill_requested_at).toISOString() : null,
+    depositCreditAmount: Number(order.deposit_credit_amount ?? 0),
     paymentMethod: order.payment_method,
     qrScope: order.qr_scope ?? null,
     paymentStatus: order.payment_status,

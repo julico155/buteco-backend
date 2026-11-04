@@ -25,8 +25,6 @@ import { ReservationsService } from './reservations.service';
 import {
   CancelReservationDto,
   CreateReservationDto,
-  MoveReservationDto,
-  SeatReservationDto,
   UpdateReservationSettingsDto,
 } from './dto/reservation.dto';
 
@@ -140,18 +138,6 @@ export class ReservationsController {
     });
   }
 
-  @Post('reservations/:id/seat')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'cashier')
-  @HttpCode(200)
-  seat(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: SeatReservationDto,
-    @CurrentStaffUser() staffUser: JwtPayload,
-  ) {
-    return this.reservations.seat(id, { tableId: dto.tableId, staffUsername: staffUser.username });
-  }
-
   @Post('reservations/:id/no-show')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'cashier')
@@ -166,13 +152,6 @@ export class ReservationsController {
   @HttpCode(200)
   refunded(@Param('id', ParseUUIDPipe) id: string) {
     return this.reservations.markRefunded(id);
-  }
-
-  @Patch('reservations/:id/table')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'cashier')
-  move(@Param('id', ParseUUIDPipe) id: string, @Body() dto: MoveReservationDto) {
-    return this.reservations.move(id, dto.tableId);
   }
 
   // ---- Configuración ----

@@ -143,11 +143,12 @@ export class ReservationSettingsView {
   cancelRefundHours!: number;
   minLeadMinutes!: number;
   maxDaysAhead!: number;
-  maxOccupancyPercent!: number;
+  /** Tope de personas con reserva el mismo día (suma de los grupos). */
+  maxPeoplePerDay!: number;
   lastSlotBeforeCloseMinutes!: number;
 }
 
-/** Lo que ve el cliente: nunca la mesa. */
+/** Lo que ve el cliente. */
 export class PublicReservationResponse {
   id!: string;
   reservationNumber!: string;
@@ -168,10 +169,8 @@ export class PublicReservationResponse {
 
 export class StaffReservationResponse extends PublicReservationResponse {
   customerPhone!: string;
-  tableId!: string;
-  tableLabel!: string;
-  tableSeats!: number;
   blocksUntil!: string;
+  /** Pedido de consumo ("mesa") al que se aplicó el adelanto, cuando el cliente llegó. */
   accountOrderId!: string | null;
   cancelReason!: string | null;
 }

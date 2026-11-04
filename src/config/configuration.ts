@@ -5,6 +5,14 @@ export interface ServiceAuthConfig {
 
 import { normalizePhone } from '../customers/normalize-phone';
 
+export interface BanecoCredentials {
+  baseUrl: string;
+  username: string;
+  password: string;
+  aesKey: string;
+  account: string;
+}
+
 export interface AppConfig {
   /** Nombre del negocio, para el título de Swagger y similares. */
   appName: string;
@@ -34,12 +42,25 @@ export interface AppConfig {
     /** Solo para proveedores S3-compatibles que no son AWS (Cloudflare R2, MinIO, etc.). Vacío = AWS S3. */
     endpoint: string;
   };
-  baneco: {
-    baseUrl: string;
-    username: string;
-    password: string;
-    aesKey: string;
-    account: string;
+  baneco: BanecoCredentials;
+  /**
+   * Segundo juego de llaves del banco, SOLO para las recargas de saldo del negocio (la plata cae en la cuenta de quien
+   * opera la plataforma, no en la del restaurante). Mismo formato que `baneco`; vacío = no se pueden generar recargas.
+   */
+  banecoTopup: BanecoCredentials;
+  /**
+   * Comisión por pedido del agente (canal whatsapp) cobrada contra un saldo prepago. Con `commissionPercent` en 0 (la variable
+   * sin definir) todo el mecanismo queda apagado: no se calcula comisión, no se bloquea nada.
+   */
+  agentBilling: {
+    /** Porcentaje sobre el subtotal de los productos (sin envío), p. ej. 3 = 3 %. */
+    commissionPercent: number;
+    /** Cuánto puede quedar el saldo en negativo antes de dejar de tomar pedidos del agente (Bs). */
+    overdraftLimit: number;
+    /** Con este saldo (Bs) o menos se avisa al personal que hay que recargar. */
+    lowBalanceThreshold: number;
+    /** Monto mínimo de una recarga (Bs). */
+    topupMinAmount: number;
   };
   /**
    * 'manual' = mientras el banco no habilite producción: el POS nunca le
@@ -128,6 +149,14 @@ function storageS3Env(name: string): string | undefined {
   return legacy || undefined;
 }
 
+/** Número no negativo de una variable de entorno; si falta o no es válido, el valor por defecto. */
+function numberEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 function requiredEnv(name: 'DATABASE_URL' | 'JWT_SECRET'): string {
   const value = process.env[name];
   if (!value || !value.trim()) {
@@ -169,6 +198,20 @@ export default (): AppConfig => ({
     password: process.env.BANECO_PASSWORD ?? '',
     aesKey: process.env.BANECO_AES_KEY ?? '',
     account: process.env.BANECO_ACCOUNT ?? '',
+  },
+  banecoTopup: {
+    baseUrl: (process.env.BANECO_TOPUP_BASE_URL ?? '').replace(/\/+$/, ''),
+    username: process.env.BANECO_TOPUP_USERNAME ?? '',
+    password: process.env.BANECO_TOPUP_PASSWORD ?? '',
+    aesKey: process.env.BANECO_TOPUP_AES_KEY ?? '',
+    account: process.env.BANECO_TOPUP_ACCOUNT ?? '',
+  },
+  agentBilling: {
+    // Tope 100: es un porcentaje, y la columna de la base no admite más.
+    commissionPercent: Math.min(numberEnv('AGENT_COMMISSION_PERCENT', 0), 100),
+    overdraftLimit: numberEnv('AGENT_BALANCE_OVERDRAFT_LIMIT', 10),
+    lowBalanceThreshold: numberEnv('AGENT_BALANCE_LOW_THRESHOLD', 10),
+    topupMinAmount: numberEnv('AGENT_TOPUP_MIN_AMOUNT', 10),
   },
   posQrMode: process.env.POS_QR_MODE === 'manual' ? 'manual' : 'bank',
   unpaidOrderTtlMinutes:
