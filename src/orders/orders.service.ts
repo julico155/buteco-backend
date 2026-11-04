@@ -21,9 +21,11 @@ import {
   NotFoundDomainError,
   ProductUnavailableError,
   PromotionUnavailableError,
+  PromotionNotCombinableError,
   StoreClosedError,
   ValidationError,
 } from '../common/exceptions/domain-exception';
+import { catalogChannelOfOrder, SELL_ON_COLUMN } from '../common/channel-visibility';
 import { hashRequestBody, IdempotencyService } from '../common/idempotency/idempotency.service';
 import {
   httpStatusForLateRequest,
@@ -728,6 +730,7 @@ export class OrdersService {
     trx: Transaction<Database>,
     items: CheckoutCartInput['items'],
     promotions: CheckoutCartInput['promotions'],
+    channel?: string,
   ) {
     const productIds = items.map((i) => i.productId);
     // Dos líneas del mismo producto son válidas si tienen distinta selección
@@ -764,6 +767,20 @@ export class OrdersService {
         : [];
     const promotionById = new Map(promotionRows.map((p) => [p.id, p]));
 
+    // Visibilidad por canal: aplica a lo que se vende SUELTO y a la promoción en sí, nunca a los componentes de un combo
+    // (un producto puede estar apagado suelto en un canal y aun así venderse dentro de su combo).
+    const catalogChannel = channel === undefined ? undefined : catalogChannelOfOrder(channel);
+    const soldInChannel = (row: { sell_on_whatsapp: boolean; sell_on_pos: boolean }) =>
+      catalogChannel === undefined || row[SELL_ON_COLUMN[catalogChannel]] === true;
+
+    // Promoción que no se combina: el pedido solo puede llevar promociones, nunca productos sueltos.
+    if (items.length > 0) {
+      const exclusiveIds = promotionRows.filter((row) => row.allow_combine_with_loose === false).map((row) => row.id);
+      if (exclusiveIds.length > 0) {
+        throw new PromotionNotCombinableError(exclusiveIds, productIds);
+      }
+    }
+
     const badPromotionIds = new Set<string>();
     for (const p of promotions) {
       const row = promotionById.get(p.promotionId);
@@ -771,6 +788,7 @@ export class OrdersService {
         !row ||
         row.archived_at !== null ||
         row.is_active !== true ||
+        !soldInChannel(row) ||
         (row.starts_at !== null && new Date(row.starts_at) > now) ||
         (row.ends_at !== null && new Date(row.ends_at) <= now) ||
         row.revision !== p.revision
@@ -856,6 +874,15 @@ export class OrdersService {
     const inactiveLooseItem = items.find((i) => inactiveProductIds.has(i.productId));
     if (inactiveLooseItem) {
       throw new ProductUnavailableError(inactiveLooseItem.productId, 'inactive');
+    }
+    const outOfChannelLooseItemIds = items
+      .filter((i) => {
+        const row = productById.get(i.productId);
+        return row !== undefined && !soldInChannel(row);
+      })
+      .map((i) => i.productId);
+    if (outOfChannelLooseItemIds.length > 0) {
+      throw new ProductUnavailableError(outOfChannelLooseItemIds[0], 'not_in_channel', outOfChannelLooseItemIds);
     }
     const soldOutLooseItemIds = items
       .filter((i) => soldOutProductIds.has(i.productId))
@@ -1041,7 +1068,7 @@ export class OrdersService {
       if (!customer) throw new NotFoundDomainError('customer', input.customerId);
     }
 
-    const { itemLines, promotionLines, subtotal, now } = await this.priceCart(trx, items, promotions);
+    const { itemLines, promotionLines, subtotal, now } = await this.priceCart(trx, items, promotions, input.channel);
 
     if (subtotal <= 0) {
       throw new ValidationError('El total del pedido debe ser positivo.');

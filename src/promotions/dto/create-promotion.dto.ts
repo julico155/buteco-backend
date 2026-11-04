@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsISO8601,
   IsNumber,
   IsOptional,
@@ -48,4 +49,16 @@ export class CreatePromotionDto {
   @IsOptional()
   @IsUrl()
   imageUrl?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  sellOnWhatsapp?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  sellOnPos?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowCombineWithLoose?: boolean;
 }

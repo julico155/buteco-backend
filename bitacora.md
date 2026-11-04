@@ -6,3 +6,7 @@
 - backend: entorno LOCAL de pruebas en `.central-test/` (sin commit, excluido de git): Postgres desechable en el puerto 54329 y Central en el 3100, con tokens aleatorios y todo lo externo apagado. Incluye siembra de la carta (datos de prueba) y control del día de la sopa. Rama `feat/carta-opciones-producto`.
 - backend: Subida: 2 repos, 2 ramas. buteco-backend va en `feat/carta-opciones-producto` y Agente-Buteco en `restaurar-menu-maqueta`. Orden de despliegue: PRIMERO Central (migración `1700000016000` y código), DESPUÉS el menú y el agente; si el menú llegara antes, los clientes verían la carta vacía o con errores.
 - backend: script `scripts/load-carta.mjs` para cargar el catálogo real por la API admin (dry-run por defecto, `--apply` explícito, credenciales por variables de entorno, desactiva y no borra los 6 productos viejos, conserva carnes agotadas). Probado solo contra un Central local; nada contra producción. Guía en `docs/carga-catalogo-carta.md`. Rama `feat/carta-opciones-producto`.
+
+## 2026-11-04 · GRAD
+- backend: menús separados POS / web. Flags `sell_on_pos` y `sell_on_whatsapp` en productos y promociones (migración `1700000017000`, default true: lo nuevo sale en ambos). `GET /products|/promotions?channel=pos|whatsapp`; el token `whatsapp-gateway` siempre ve el menú web. Pedidos validan el flag por canal (`not_in_channel`); los componentes de un combo no lo miran. Portado de NewZarco.
+- backend: promoción con `allowCombineWithLoose` (default true). En false, el pedido lleva solo promociones o solo sueltos (409 `promotion_not_combinable`).

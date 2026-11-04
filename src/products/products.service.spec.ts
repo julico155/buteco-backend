@@ -11,6 +11,8 @@ const row = {
   price: '15.00',
   is_active: true,
   is_available: true,
+  sell_on_whatsapp: true,
+  sell_on_pos: true,
   sort_order: 1,
   image_key: null,
   available_weekdays: [6, 0] as number[] | null,
@@ -66,5 +68,14 @@ describe('assertValidOptionGroups', () => {
     expect(codeOf(() => assertValidOptionGroups(dto([{ code: 'g', name: 'G', options: [option('a'), option('a')] }])))).toBe('validation_error');
     expect(codeOf(() => assertValidOptionGroups(dto([{ code: 'g', name: 'G', minSelect: 2, maxSelect: 1, options: carnes }])))).toBe('validation_error');
     expect(codeOf(() => assertValidOptionGroups(dto([{ code: 'g', name: 'G', maxSelect: 3, options: carnes }])))).toBe('validation_error');
+  });
+});
+
+describe('toProductResponse — visibilidad por canal', () => {
+  it('expone sellOnWhatsapp y sellOnPos por separado', () => {
+    expect(toProductResponse({ ...row, sell_on_pos: false }, [], [])).toMatchObject({
+      sellOnWhatsapp: true,
+      sellOnPos: false,
+    });
   });
 });

@@ -24,6 +24,10 @@ export class PromotionResponse {
   description!: string | null;
   promoPrice!: number;
   isActive!: boolean;
+  sellOnWhatsapp!: boolean;
+  sellOnPos!: boolean;
+  /** false = el pedido con esta promo no puede llevar productos sueltos. */
+  allowCombineWithLoose!: boolean;
   archivedAt!: string | null;
   startsAt!: string | null;
   endsAt!: string | null;

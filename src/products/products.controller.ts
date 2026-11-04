@@ -17,6 +17,8 @@ import { ServiceOrStaffAuthGuard } from '../common/guards/service-or-staff-auth.
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { resolveCatalogChannel } from '../common/channel-visibility';
+import { ApiClient } from '../common/decorators/api-client.decorator';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -33,8 +35,13 @@ export class ProductsController {
   @Get()
   @UseGuards(ServiceOrStaffAuthGuard)
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean })
-  findMany(@Query('includeInactive') includeInactive?: string) {
-    return this.products.findMany(includeInactive === 'true');
+  @ApiQuery({ name: 'channel', required: false, enum: ['whatsapp', 'pos'] })
+  findMany(
+    @ApiClient() apiClient: string,
+    @Query('includeInactive') includeInactive?: string,
+    @Query('channel') channel?: string,
+  ) {
+    return this.products.findMany(includeInactive === 'true', resolveCatalogChannel(apiClient, channel));
   }
 
   @Post()

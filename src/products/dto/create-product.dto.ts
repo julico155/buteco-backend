@@ -48,6 +48,14 @@ export class CreateProductDto {
   isAvailable?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  sellOnWhatsapp?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  sellOnPos?: boolean;
+
+  @IsOptional()
   @IsInt()
   sortOrder?: number;
 

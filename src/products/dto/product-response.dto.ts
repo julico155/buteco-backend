@@ -36,6 +36,10 @@ export class ProductResponse {
   price!: number;
   isActive!: boolean;
   isAvailable!: boolean;
+  /** Se vende suelto en el menú web/WhatsApp. */
+  sellOnWhatsapp!: boolean;
+  /** Se vende suelto en el POS. */
+  sellOnPos!: boolean;
   sortOrder!: number;
   imageUrl!: string | null;
   complements!: ProductComplementResponse[];

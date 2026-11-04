@@ -32,6 +32,10 @@ export interface ProductsTable {
   price: string; // numeric(10,2) llega como string del driver pg
   is_active: Generated<boolean>;
   is_available: Generated<boolean>;
+  /** Se vende SUELTO en el menú web/WhatsApp. */
+  sell_on_whatsapp: Generated<boolean>;
+  /** Se vende SUELTO en el POS. */
+  sell_on_pos: Generated<boolean>;
   sort_order: Generated<number>;
   image_key: string | null;
   image_mime_type: string | null;
@@ -387,6 +391,10 @@ export interface PromotionsTable {
   description: string | null;
   promo_price: string;
   is_active: Generated<boolean>;
+  sell_on_whatsapp: Generated<boolean>;
+  sell_on_pos: Generated<boolean>;
+  /** false = el pedido con esta promo no puede llevar productos sueltos. */
+  allow_combine_with_loose: Generated<boolean>;
   starts_at: Timestamp | null;
   ends_at: Timestamp | null;
   sort_order: Generated<number>;
